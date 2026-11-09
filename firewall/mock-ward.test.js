@@ -57,3 +57,36 @@ test("records insufficient balance and resets cap at UTC midnight", t => {
   assert.equal(pay("day-two").decision, "ALLOW");
   assert.equal(ward.balance(), "50");
 });
+
+test("family resolution rechecks time windows, leaves blocked approvals pending and debits once", t => {
+  let now = 10 * 60_000;
+  const ward = openMockWard(":memory:", {
+    policy: { ...policy, timeWindows: [{ startMinute: 10, endMinute: 20 }] },
+    clock: () => now,
+  });
+  t.after(() => ward.close());
+  ward.creditMockFunding({ id: "fund", amount: "100" });
+  assert.equal(ward.requestPayment({ id: "held", payee: "pharmacy.test", amount: "30" }).decision, "HOLD");
+  now = 20 * 60_000;
+  assert.equal(ward.resolvePayment({ id: "held", approve: true }).ruleId, "time_window");
+  assert.equal(ward.pending().length, 1);
+  assert.equal(ward.balance(), "100");
+  now = 86_400_000 + 10 * 60_000;
+  assert.equal(ward.resolvePayment({ id: "held", approve: true }).ruleId, "family_approved");
+  assert.equal(ward.resolvePayment({ id: "held", approve: true }).decision, "ALLOW");
+  assert.throws(() => ward.resolvePayment({ id: "held", approve: false }), /already resolved/);
+  assert.equal(ward.pending().length, 0);
+  assert.equal(ward.balance(), "70");
+  assert.deepEqual(ward.audit().map(row => row.decision), ["HOLD", "BLOCK", "ALLOW"]);
+});
+
+test("family rejection closes the request without changing the balance", t => {
+  const ward = openMockWard(":memory:", { policy });
+  t.after(() => ward.close());
+  ward.creditMockFunding({ id: "fund", amount: "100" });
+  ward.requestPayment({ id: "held", payee: "pharmacy.test", amount: "30" });
+  assert.equal(ward.resolvePayment({ id: "held", approve: false }).ruleId, "family_rejected");
+  assert.equal(ward.payment("held").decision, "BLOCK");
+  assert.equal(ward.pending().length, 0);
+  assert.equal(ward.balance(), "100");
+});

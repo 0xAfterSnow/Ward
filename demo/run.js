@@ -3,14 +3,7 @@ import { dirname } from "node:path";
 import { previewFunding } from "../firewall/funding.js";
 import { openMockWard } from "../firewall/mock-ward.js";
 
-const near = 10n ** 24n;
-const amount = whole => String(BigInt(whole) * near);
-
-function formatNear(value) {
-  const integer = BigInt(value);
-  const fractional = String(integer % near).padStart(24, "0").replace(/0+$/, "");
-  return fractional ? `${integer / near}.${fractional}` : String(integer / near);
-}
+import { amount, demoClock, demoPolicy, formatNear } from "./fixture.js";
 
 async function main(command) {
   if (command === "quote") {
@@ -27,14 +20,8 @@ async function main(command) {
   const filename = process.env.WARD_DEMO_DB ?? ".ward/demo.sqlite";
   mkdirSync(dirname(filename), { recursive: true });
   const ward = openMockWard(filename, {
-    policy: {
-      dailyCap: amount(5),
-      perTxCeiling: amount(3),
-      approvalThreshold: amount(1),
-      payees: ["pharmacy.test"],
-      timeWindows: [{ startMinute: 480, endMinute: 1200 }],
-    },
-    clock: () => Date.parse("2026-11-09T12:00:00Z"),
+    policy: demoPolicy,
+    clock: demoClock,
   });
   try {
     switch (command) {
@@ -45,6 +32,17 @@ async function main(command) {
       }
       case "pay-pharmacy": {
         const result = ward.requestPayment({ id: "pharmacy-payment", payee: "pharmacy.test", amount: amount(1) });
+        console.log(`${result.decision} | ${result.ruleId} | ${result.reason} | balance=${formatNear(ward.balance())} NEAR`);
+        break;
+      }
+      case "hold": {
+        const result = ward.requestPayment({ id: "family-review", payee: "pharmacy.test", amount: amount(2) });
+        console.log(`${result.decision} | ${result.ruleId} | ${result.reason}`);
+        if (result.decision === "HOLD") console.log("FAMILY INBOX | family-review");
+        break;
+      }
+      case "approve": {
+        const result = ward.resolvePayment({ id: process.argv[3] ?? "family-review", approve: true });
         console.log(`${result.decision} | ${result.ruleId} | ${result.reason} | balance=${formatNear(ward.balance())} NEAR`);
         break;
       }

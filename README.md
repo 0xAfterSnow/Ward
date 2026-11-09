@@ -4,7 +4,7 @@
 
 An open policy layer that stops AI agents and scammers from draining a wallet (`/firewall`), and Mama Wallet (`/mama-wallet`), an app built on it to protect an elderly parent's money.
 
-> Status: Day 2. Ward's policy rules, offline audit and funding preview are implemented. Mama Wallet and the remaining demo scenarios are planned.
+> Status: Day 3. Mama Wallet is a local installable web app backed by Ward's mock ledger. The scam screening and injection demo script are planned.
 
 ## The problem
 
@@ -18,8 +18,8 @@ Both problems have the same fix: enforce spending rules outside the model, then 
 | Path | What it is |
 | --- | --- |
 | `/firewall` | Ward's `check()` API, offline ledger, 1Click quote preview and Rust vault. |
-| `/mama-wallet` | Planned elder-facing wallet and family approval flow. All policy checks belong to Ward. |
-| `/demo` | Credential-free funding, pharmacy payment and audit commands. |
+| `/mama-wallet` | Responsive Elder and Family views, install manifest, service worker and local app server. |
+| `/demo` | Credential-free funding, pharmacy payment, hold, approval and audit commands. |
 
 ## How the firewall works
 
@@ -37,6 +37,8 @@ Two layers:
 
 The mock ledger stores each decision, rule ID and reason in SQLite. The same database transaction checks the current balance and UTC daily spend and records the decision. A retry with the same payment ID and inputs replays the decision without charging the balance again. The audit stores no request memo.
 
+The PWA calls Ward's HTTP API. Ward checks the session role for each action. A family session can issue a one-use elder link, add demo credits, and approve or reject a held payment. Approval rechecks the hard policy and available balance before debiting the wallet. The approval link identifies a request and requires a family session to act on it.
+
 ## NEAR tools used
 
 - NEAR Rust SDK `5.29.0` for the vault and its unsigned mock-runtime tests.
@@ -46,7 +48,7 @@ The mock ledger stores each decision, rule ID and reason in SQLite. The same dat
 ## Baseline and disclosure
 
 - goChameleon (my existing crypto payment gateway) is an external service this project can call for merchant checkout. It is not part of this submission. TODO: link the pre-hackathon tag and the diff of work done in the window.
-- Libraries and AI-assisted code: Node.js built-ins including `node:sqlite`, NEAR Rust SDK for the vault, NEAR Workspaces and NEAR API JS for the optional Sandbox test. Codex generated the policy, vault, ledger, funding adapter, demo and tests.
+- Libraries and AI-assisted code: Node.js built-ins including `node:sqlite`, NEAR Rust SDK for the vault, NEAR Workspaces and NEAR API JS for the optional Sandbox test. Codex generated the policy, vault, ledger, funding adapter, Mama Wallet, demo and tests.
 
 ## Tests
 
@@ -92,9 +94,32 @@ Run `npm install` from the repository root with Node.js 24.22.1. The mock comman
 | --- | --- | --- |
 | 1 | `npm run --silent demo:fund` | `MOCK FUNDING \| fixture=10 NEAR \| balance=10 NEAR` |
 | 2 | `npm run --silent demo:pay-pharmacy` | `ALLOW \| policy_pass \| Payment passed policy \| balance=9 NEAR` |
-| 3 | `npm run --silent demo:audit` | `ALLOW \| pharmacy-payment \| policy_pass \| Payment passed policy` |
+| 3 | `npm run --silent demo:hold` | `HOLD \| approval_threshold \| Family approval required` followed by `FAMILY INBOX \| family-review` |
+| 4 | `npm run --silent demo:approve` | `ALLOW \| family_approved \| Family approved payment \| balance=7 NEAR` |
+| 5 | `npm run --silent demo:audit` | The three audit lines shown below. |
 
-The table assumes a fresh ledger at `.ward/demo.sqlite`. For a separate run, set `WARD_DEMO_DB` to a new file. The demo uses a fixed UTC clock and credits a simulated native NEAR balance. The scam, family approval and injection scripts are planned.
+```text
+ALLOW | pharmacy-payment | policy_pass | Payment passed policy
+HOLD | family-review | approval_threshold | Family approval required
+ALLOW | family-review | family_approved | Family approved payment
+```
+
+The table assumes a fresh ledger at `.ward/demo.sqlite`. For a separate run, set `WARD_DEMO_DB` to a new file. The demo uses a fixed UTC clock and credits a simulated native NEAR balance. Scam screening and the injection demo script are planned.
+
+## Try the Mama Wallet PWA
+
+Run `npm run dev` and open the **Private family setup link** printed in the terminal. Keep this setup link within your family. The local server uses `http://127.0.0.1:4173` by default. The steps below assume a fresh `.ward/wallet.sqlite`. Set `WARD_WALLET_DB` to a new path for another run.
+
+| # | Do | Expected result |
+| --- | --- | --- |
+| 1 | Open the family setup link. Select **Add 10 demo credits**. | **Family dashboard** shows a balance of **10 credits**. |
+| 2 | Select **Create pairing link** and open the link in a separate browser profile or private window on the same computer. | The **Elder view** opens and lists **Oak Street Pharmacy** and **Market Grocer**. Opening the same pairing link again fails. |
+| 3 | In Elder, select **Oak Street Pharmacy**, enter **2**, choose **Review payment**, then **Confirm payment**. | Elder shows **Waiting for family** and still has **10 credits**. Family shows **Approval inbox · 1** within a few seconds. |
+| 4 | In Family, select **Open approval link** or copy it to another signed-in family session. Select **Approve**. | Family balance falls to **8 credits** and the inbox clears. The audit log contains **HOLD** and **ALLOW**. Elder shows **Paid · 2 credits**. |
+| 5 | In Elder, make a second payment for **3** credits. In Family, select **Reject**. | The balance stays at **8 credits**. The audit log shows **BLOCK** with **Family rejected payment**. Elder shows **Not paid · 3 credits**. |
+| 6 | In a compatible browser, use its **Install Mama Wallet** or **Add to Home Screen** command. | Mama Wallet opens in its own app window. Payment actions require the running local server. |
+
+The app uses an in-app inbox and shareable review links. Push and SMS are future work. This demo serves one mock wallet per server. Pairing links expire after 10 minutes and browser sessions expire after eight hours or a server restart. The ledger persists across restarts. The local server binds to loopback, so links work across browser profiles on the same computer.
 
 ## Optional 1Click preview
 

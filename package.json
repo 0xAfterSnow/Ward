@@ -13,6 +13,9 @@
     "demo:fund": "node demo/run.js fund",
     "demo:pay-pharmacy": "node demo/run.js pay-pharmacy",
     "demo:audit": "node demo/run.js audit",
-    "quote:fund": "node --env-file-if-exists=.env demo/run.js quote"
+    "quote:fund": "node --env-file-if-exists=.env demo/run.js quote",
+    "demo:hold": "node demo/run.js hold",
+    "demo:approve": "node demo/run.js approve",
+    "dev": "node mama-wallet/server.js"
   }
 }
