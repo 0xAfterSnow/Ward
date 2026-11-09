@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { amountOf, block, check, isAccountId } from "./policy.js";
+import { normalizeNote, REVIEW_SCORE, scoreNote, validScore } from "./screening.js";
 
 function validateId(id) {
   if (typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(id)) {
@@ -9,7 +10,7 @@ function validateId(id) {
 }
 
 // An offline ledger for the demo. Production custody is handled by the vault.
-export function openMockWard(filename, { policy, clock = Date.now } = {}) {
+export function openMockWard(filename, { policy, clock = Date.now, cloudScreen } = {}) {
   const db = new DatabaseSync(filename, { timeout: 5000 });
   db.exec(`
     CREATE TABLE IF NOT EXISTS entries (
@@ -75,6 +76,36 @@ export function openMockWard(filename, { policy, clock = Date.now } = {}) {
     return result;
   }
 
+  function recordPayment({ id, payee, amount, memo }, cloudScore = 0) {
+    validateId(id);
+    const parsedAmount = amountOf(amount);
+    const auditAmount = parsedAmount === null ? null : amount;
+    const auditPayee = isAccountId(payee) ? payee : null;
+    return atomic(() => {
+      const previous = find.get("payment", id);
+      if (previous) {
+        if (previous.payee !== auditPayee || previous.amount !== auditAmount) {
+          throw new Error("Payment ID already used");
+        }
+        const { decision, reason, ruleId } = previous;
+        return { decision, reason, ruleId };
+      }
+      const now = clock();
+      const timestamp = new Date(now).toISOString();
+      const hardDecision = evaluate(payee, amount, now, timestamp);
+      const needsReview = hardDecision.decision === "ALLOW"
+        && Math.max(scoreNote(memo), cloudScore) >= REVIEW_SCORE;
+      const result = needsReview
+        ? { decision: "HOLD", ruleId: "screening_risk", reason: "Payment note needs family review" }
+        : hardDecision;
+      insert.run(
+        "payment", id, timestamp, auditPayee, auditAmount,
+        result.decision, result.ruleId, result.reason,
+      );
+      return result;
+    });
+  }
+
   return {
     creditMockFunding({ id, amount }) {
       validateId(id);
@@ -96,29 +127,28 @@ export function openMockWard(filename, { policy, clock = Date.now } = {}) {
       });
     },
 
-    requestPayment({ id, payee, amount }) {
-      validateId(id);
-      const parsedAmount = amountOf(amount);
-      const auditAmount = parsedAmount === null ? null : amount;
-      const auditPayee = isAccountId(payee) ? payee : null;
-      return atomic(() => {
-        const previous = find.get("payment", id);
-        if (previous) {
-          if (previous.payee !== auditPayee || previous.amount !== auditAmount) {
-            throw new Error("Payment ID already used");
-          }
-          const { decision, reason, ruleId } = previous;
-          return { decision, reason, ruleId };
-        }
-        const now = clock();
-        const timestamp = new Date(now).toISOString();
-        const result = evaluate(payee, amount, now, timestamp);
-        insert.run(
-          "payment", id, timestamp, auditPayee, auditAmount,
-          result.decision, result.ruleId, result.reason,
-        );
-        return result;
-      });
+    requestPayment(tx) {
+      return recordPayment(tx);
+    },
+
+    async requestScreenedPayment(tx) {
+      validateId(tx.id);
+      const note = normalizeNote(tx.memo);
+      if (!cloudScreen || !note.trim() || scoreNote(note) >= REVIEW_SCORE || find.get("payment", tx.id)) {
+        return recordPayment(tx);
+      }
+      const now = clock();
+      if (evaluate(tx.payee, tx.amount, now, new Date(now).toISOString()).decision !== "ALLOW") {
+        return recordPayment(tx);
+      }
+      let score;
+      try {
+        score = await cloudScreen(note);
+      } catch {
+        // Keep the deterministic score when the provider is unavailable.
+      }
+      // Recheck current policy and balance in the write transaction after the network wait.
+      return recordPayment(tx, validScore(score) ? score : 0);
     },
 
     resolvePayment({ id, approve }) {

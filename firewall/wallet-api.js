@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { NOTE_LIMIT } from "./screening.js";
 
 const token = () => randomBytes(32).toString("base64url");
 const SESSION_MS = 8 * 60 * 60_000;
@@ -108,11 +109,14 @@ export function createWalletApi({ ward, origin, familyCode, payees, fundingAmoun
       if (req.method !== "POST") throw new ApiError(404, "Page unavailable");
 
       if (pathname === "/api/payments" && role === "elder") {
-        const { id, payee, credits } = await readBody(req);
+        const { id, payee, credits, memo } = await readBody(req);
         if (!validId(id)) throw new ApiError(400, "Invalid payment reference");
+        if (memo !== undefined && (typeof memo !== "string" || memo.length > NOTE_LIMIT)) {
+          throw new ApiError(400, `Payment notes can be up to ${NOTE_LIMIT} characters`);
+        }
         let result;
         try {
-          result = ward.requestPayment({ id, payee, amount: toAtomic(credits) });
+          result = await ward.requestScreenedPayment({ id, payee, amount: toAtomic(credits), memo });
         } catch (error) {
           if (error.message === "Payment ID already used") throw new ApiError(409, error.message);
           throw error;

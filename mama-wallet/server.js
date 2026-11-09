@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { amount, demoClock, demoPolicy, formatNear, labels } from "../demo/fixture.js";
 import { openMockWard } from "../firewall/mock-ward.js";
 import { createWalletApi } from "../firewall/wallet-api.js";
+import { createNearAiScreener } from "../firewall/screening.js";
 
 const assets = new Map(Object.entries({
   "/": ["index.html", "text/html; charset=utf-8"],
@@ -19,9 +20,9 @@ const assets = new Map(Object.entries({
   "/icon-512.png": ["icon-512.png", "image/png"],
 }));
 
-export function startWallet({ port = 4173, filename = ".ward/wallet.sqlite" } = {}) {
+export function startWallet({ port = 4173, filename = ".ward/wallet.sqlite", cloudScreen } = {}) {
   if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
-  const ward = openMockWard(filename, { policy: demoPolicy, clock: demoClock });
+  const ward = openMockWard(filename, { policy: demoPolicy, clock: demoClock, cloudScreen });
   const familyCode = randomBytes(32).toString("base64url");
   let api;
   let origin;
@@ -63,9 +64,13 @@ export function startWallet({ port = 4173, filename = ".ward/wallet.sqlite" } = 
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const cloudScreen = process.env.WARD_SCREENING === "near-ai"
+    ? createNearAiScreener(process.env.NEAR_AI_API_KEY)
+    : undefined;
   const { origin, familyLink } = await startWallet({
     port: Number(process.env.PORT ?? 4173),
     filename: process.env.WARD_WALLET_DB,
+    cloudScreen,
   });
   console.log(`Mama Wallet local demo: ${origin}`);
   console.log(`Private family setup link: ${familyLink}`);

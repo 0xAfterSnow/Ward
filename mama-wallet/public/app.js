@@ -3,6 +3,7 @@ const notice = document.querySelector("#notice");
 const dialog = document.querySelector("#payment-dialog");
 const form = document.querySelector("#payment-form");
 const input = document.querySelector("#amount");
+const note = document.querySelector("#payment-note");
 const paymentNext = document.querySelector("#payment-next");
 const paymentError = document.querySelector("#payment-error");
 let wallet;
@@ -204,6 +205,7 @@ function openPayment(payee) {
   form.reset();
   input.disabled = false;
   document.querySelector("#amount-label").hidden = false;
+  document.querySelector("#note-label").hidden = false;
   document.querySelector("#payment-title").textContent = `Pay ${payee.label}`;
   document.querySelector("#payment-description").textContent = "Enter how much you want to pay.";
   paymentNext.textContent = "Review payment";
@@ -217,11 +219,13 @@ form.addEventListener("submit", async event => {
   if (busy) return;
   if (payment.credits === undefined) {
     payment.credits = input.value;
+    payment.memo = note.value;
     document.querySelector("#payment-title").textContent = "Confirm payment";
     document.querySelector("#payment-description").textContent =
       `Send ${credits(payment.credits)} to ${payment.label}?`;
     input.disabled = true;
     document.querySelector("#amount-label").hidden = true;
+    document.querySelector("#note-label").hidden = true;
     paymentNext.textContent = "Confirm payment";
     return;
   }

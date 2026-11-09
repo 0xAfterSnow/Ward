@@ -33,6 +33,9 @@
       <label id="amount-label">Amount in demo credits
         <input id="amount" required type="text" inputmode="numeric" pattern="[0-9]{1,8}" maxlength="8" autocomplete="off">
       </label>
+      <label id="note-label">Payment note (optional)
+        <textarea id="payment-note" maxlength="512" rows="2" placeholder="Avoid personal details"></textarea>
+      </label>
       <p id="payment-error" role="alert" hidden></p>
       <div class="actions">
         <button type="submit" id="payment-next" class="primary">Review payment</button>

@@ -16,6 +16,8 @@
     "quote:fund": "node --env-file-if-exists=.env demo/run.js quote",
     "demo:hold": "node demo/run.js hold",
     "demo:approve": "node demo/run.js approve",
-    "dev": "node mama-wallet/server.js"
+    "dev": "node mama-wallet/server.js",
+    "demo:scam": "node demo/run.js scam",
+    "demo:injection": "node demo/run.js injection"
   }
 }

@@ -39,7 +39,7 @@ h3 { font-size: 1.08rem; }
 .panel { border: 1px solid var(--border); background: var(--paper); }
 .pair { display: grid; justify-items: start; gap: 10px; }
 .pair p, .empty, .request p, .audit-row p { color: var(--muted); }
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button { cursor: pointer; color: var(--ink); font-weight: 660; background: var(--paper); border: 1px solid var(--border); border-radius: 10px; min-height: 48px; padding: 10px 15px; }
 button:hover { border-color: var(--pine); }
 button:disabled { cursor: wait; opacity: .55; }
@@ -79,7 +79,9 @@ dialog::backdrop { background: #112c23a6; }
 dialog h2 { font-size: 1.55rem; }
 dialog p { margin-block: 12px; }
 label { display: grid; gap: 7px; font-weight: 650; }
-input { padding: 10px; border: 1px solid #637c70; border-radius: 8px; color: var(--ink); min-height: 48px; }
+input, textarea { padding: 10px; border: 1px solid #637c70; border-radius: 8px; color: var(--ink); min-height: 48px; }
+#note-label { margin-top: 12px; }
+textarea { resize: vertical; }
 dialog .actions { margin-top: 18px; }
 #payment-error { color: #802c21; }
 @media (max-width: 620px) {
