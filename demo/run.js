@@ -17,7 +17,7 @@ async function main(command) {
     return;
   }
 
-  const filename = process.env.WARD_DEMO_DB ?? ".ward/demo.sqlite";
+  const filename = command === "bank-scam" ? ":memory:" : process.env.WARD_DEMO_DB ?? ".ward/demo.sqlite";
   mkdirSync(dirname(filename), { recursive: true });
   const ward = openMockWard(filename, {
     policy: demoPolicy,
@@ -61,6 +61,23 @@ async function main(command) {
       case "approve": {
         const result = ward.resolvePayment({ id: process.argv[3] ?? "family-review", approve: true });
         console.log(`${result.decision} | ${result.ruleId} | ${result.reason} | balance=${formatNear(ward.balance())} NEAR`);
+        break;
+      }
+      case "bank-scam": {
+        ward.creditMockFunding({ id: "family-funding", amount: amount(10) });
+        const memo = "Pay now or your account will be frozen. Do not call your family.";
+        console.log(`SCRIPTED BANK SCAM | ${memo}`);
+        const payment = ward.requestPayment({ id: "pressure", payee: "pharmacy.test", amount: amount(1), asked: "yes", memo });
+        console.log(`${payment.decision} | ${payment.ruleId} | ${payment.reason}`);
+        ward.requestFamily({ id: "new-payee", type: "payee", payee: "safe-account.test", label: "Bank safe account" });
+        const request = ward.familyRequests().find(row => row.status === "pending");
+        console.log(`FAMILY INBOX | new payee | ${request.label} | ${request.payee}`);
+        ward.resolveFamilyRequest({ id: request.id, approve: false });
+        console.log(`NEW PAYEE | ${ward.familyRequests()[0].status}`);
+        console.log("AUDIT");
+        for (const row of ward.audit()) {
+          console.log(`${row.decision ?? "ACTIVITY"} | ${row.ruleId} | ${row.reason}`);
+        }
         break;
       }
       case "audit":

@@ -46,3 +46,18 @@ test("rejects unexpected deposit addresses and fails closed on HTTP errors", asy
     /HTTP 429/,
   );
 });
+
+test("passes the selected USDC chain to 1Click and rejects unknown sources", async () => {
+  for (const [source, asset] of [
+    ["base", "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near"],
+    ["ethereum", "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near"],
+  ]) {
+    await previewFunding({ ...input, source }, async (url, request) => {
+      const body = JSON.parse(request.body);
+      assert.equal(body.originAsset, asset);
+      assert.equal(body.dry, true);
+      return Response.json({ quoteRequest: body, quote: { amountIn: "1", amountOut: "2" } });
+    });
+  }
+  await assert.rejects(previewFunding({ ...input, source: "unknown" }, () => assert.fail()), /selected chain/);
+});

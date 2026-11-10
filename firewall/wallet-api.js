@@ -1,9 +1,9 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
+import { SESSION_SECONDS } from "./family-wallets.js";
+import { fundingSources } from "./funding.js";
 import { NOTE_LIMIT } from "./screening.js";
 
 const token = () => randomBytes(32).toString("base64url");
-const SESSION_MS = 8 * 60 * 60_000;
-const INVITE_MS = 10 * 60_000;
 const COOKIE = "ward_session";
 
 class ApiError extends Error {
@@ -21,7 +21,7 @@ async function readBody(req) {
   let length = 0;
   for await (const chunk of req) {
     length += chunk.length;
-    if (length > 4096) throw new ApiError(413, "Request is too large");
+    if (length > 16_384) throw new ApiError(413, "Request is too large");
     chunks.push(chunk);
   }
   try {
@@ -38,46 +38,80 @@ function send(res, status, data, headers) {
   res.end(JSON.stringify(data));
 }
 
-function sameToken(value, expected) {
-  return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value)
-    && timingSafeEqual(Buffer.from(value), Buffer.from(expected));
-}
-
 function validId(id) {
   return typeof id === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(id);
 }
 
-// Transport and role checks belong to Ward. This instance controls a single mock wallet.
-export function createWalletApi({ ward, origin, familyCode, payees, fundingAmount, toAtomic, format }) {
-  const sessions = new Map();
-  const invites = new Map();
-  const payeeNames = new Map(payees.map(({ id, label }) => [id, label]));
-  const cookie = (value, age) =>
-    `${COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${origin.startsWith("https:") ? "; Secure" : ""}`;
+const explanations = {
+  per_tx_ceiling: "This is above the limit for one payment",
+  daily_cap: "This is above what Mama has left to spend today",
+  payee_allowlist: "This place is outside the family’s approved list",
+  time_window: "This is outside the family’s spending hours",
+  vault_balance: "There isn’t enough money in Mama’s wallet",
+  approval_threshold: "This payment is above your ask-me amount",
+  screening_risk: "The payment message showed signs of pressure",
+};
 
-  function rowView(row) {
-    return {
+export function createWalletApi({ wallets, origin, toAtomic, format, quoteFunding, clock = Date.now }) {
+  const quotes = new Map();
+  const cookie = value =>
+    `${COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_SECONDS}${origin.startsWith("https:") ? "; Secure" : ""}`;
+
+  function dashboard(ward, familyId, role) {
+    const family = wallets.family(familyId);
+    const { places, dailyCap, perTxCeiling, approvalThreshold, leftToday, rulesVersion, ...status } = ward.status();
+    const names = new Map(places.map(({ id, label }) => [id, label]));
+    const rowView = row => ({
       id: row.id.split(":")[0],
-      payee: payeeNames.get(row.payee) ?? row.payee ?? "Unknown payee",
+      kind: row.kind,
+      payee: names.get(row.payee) ?? (role === "family" ? row.payee : null),
       amount: row.amount === null ? null : format(row.amount),
       decision: row.decision,
       ruleId: row.ruleId,
-      reason: row.reason,
+      reason: explanations[row.ruleId] ?? row.reason,
       timestamp: row.timestamp,
-    };
-  }
-
-  function dashboard(role) {
+      signals: row.signals ?? [],
+    });
     const audit = ward.audit();
-    const data = { role, balance: format(ward.balance()) };
+    const receipts = ward.receipts().slice(-12).reverse().map(({ sender, amount, timestamp }) =>
+      ({ sender, amount: format(amount), timestamp }));
+    const data = { role, name: family.parent_name, childName: family.child_name,
+      balance: format(ward.balance()), leftToday: format(leftToday), receipts, frozen: status.frozen };
+
+    const requests = ward.familyRequests();
     if (role === "family") {
-      return { ...data, pending: ward.pending().map(rowView), audit: audit.map(rowView).reverse() };
+      const recent = audit.filter(row => row.decision && Date.parse(row.timestamp) > clock() - 86_400_000);
+      const counts = { ALLOW: 0, HOLD: 0, BLOCK: 0 };
+      for (const row of recent) counts[row.decision]++;
+      return {
+        ...data, address: family.address, paired: wallets.connected(familyId),
+        pending: ward.pending().map(rowView),
+        requests: requests.filter(row => row.status === "pending").map(({ family_id, ...row }) => row),
+        audit: audit.map(rowView).reverse(),
+        summary: { counts, stopped: recent.filter(row => row.decision === "BLOCK").map(rowView).reverse() },
+        rules: { dailyCap: format(dailyCap), perTxCeiling: format(perTxCeiling),
+          approvalThreshold: format(approvalThreshold), places, rulesVersion },
+        sources: Object.entries(fundingSources).map(([id, source]) => ({ id, label: source.label })),
+      };
     }
     const latest = new Map();
     for (const row of audit) {
-      if (row.kind !== "review_attempt") latest.set(row.id, row);
+      if (row.kind === "payment" || row.kind === "resolution") latest.set(row.id, row);
     }
-    return { ...data, payees, payments: [...latest.values()].map(rowView).reverse() };
+    return {
+      ...data, payees: places, payments: [...latest.values()].map(rowView).reverse(),
+      requests: requests.map(({ id, type, label, status }) => ({ id, type, label, status })),
+    };
+  }
+
+  function paymentBody({ id, payee, dollars, credits, memo, asked }) {
+    if (memo !== undefined && (typeof memo !== "string" || memo.length > NOTE_LIMIT)) {
+      throw new ApiError(400, `Use up to ${NOTE_LIMIT} characters for your message`);
+    }
+    if (asked !== undefined && !["yes", "no", "unsure"].includes(asked)) {
+      throw new ApiError(400, "Choose Yes, No or Not sure");
+    }
+    return { id, payee, amount: toAtomic(dollars ?? credits), memo, asked };
   }
 
   return async (req, res, pathname) => {
@@ -86,59 +120,127 @@ export function createWalletApi({ ward, origin, familyCode, payees, fundingAmoun
       if (req.method === "POST" && req.headers.origin !== origin) {
         throw new ApiError(403, "Open Mama Wallet from its own address");
       }
+      const body = req.method === "POST" ? await readBody(req) : null;
       const sessionId = req.headers.cookie?.match(/(?:^|;\s*)ward_session=([\w-]+)/)?.[1];
+      const session = wallets.session(sessionId);
       const now = Date.now();
-      for (const [id, session] of sessions) if (session.expires <= now) sessions.delete(id);
-      for (const [code, expires] of invites) if (expires <= now) invites.delete(code);
-      const role = sessions.get(sessionId)?.role;
+      for (const [id, quote] of quotes) if (quote.expires <= now) quotes.delete(id);
+      const rulesInput = data => ({
+        ...data, dailyCap: toAtomic(data.dailyCap), perTxCeiling: toAtomic(data.perTxCeiling),
+        approvalThreshold: toAtomic(data.approvalThreshold),
+      });
 
-      if (req.method === "POST" && (pathname === "/api/family-session" || pathname === "/api/pair")) {
-        const { code } = await readBody(req);
-        const family = pathname === "/api/family-session";
-        if (family ? !sameToken(code, familyCode) : !(invites.get(code) > Date.now() && invites.delete(code))) {
-          throw new ApiError(403, family ? "This family link is invalid" : "This pairing link has expired or was already used");
-        }
-        const id = token();
-        sessions.delete(sessionId);
-        sessions.set(id, { role: family ? "family" : "elder", expires: Date.now() + SESSION_MS });
-        return send(res, 200, { role: sessions.get(id).role }, { "Set-Cookie": cookie(id, SESSION_MS / 1000) });
+      if (body && pathname === "/api/invite-preview") {
+        return send(res, 200, wallets.previewInvite(body.code));
+      }
+      if (body && (pathname === "/api/onboarding" || pathname === "/api/pair")) {
+        if (session) throw new ApiError(409, "Open this in a separate browser profile");
+        const family = pathname === "/api/onboarding";
+        const { id, session: value } = family ? wallets.create(rulesInput(body)) : wallets.acceptInvite(body.code);
+        return send(res, family ? 201 : 200, dashboard(wallets.ward(id), id, family ? "family" : "elder"),
+          { "Set-Cookie": cookie(value) });
       }
 
-      if (!role) throw new ApiError(401, "Open a family setup or pairing link to continue");
-      if (req.method === "GET" && pathname === "/api/wallet") return send(res, 200, dashboard(role));
-      if (req.method !== "POST") throw new ApiError(404, "Page unavailable");
+      if (!session) throw new ApiError(401, "Set up a wallet or open a fresh pairing link to continue");
+      const { role, family_id: familyId } = session;
+      const ward = wallets.ward(familyId);
+      const view = () => dashboard(ward, familyId, role);
+      if (req.method === "GET" && pathname === "/api/wallet") return send(res, 200, view());
+      if (!body) throw new ApiError(404, "Page unavailable");
 
-      if (pathname === "/api/payments" && role === "elder") {
-        const { id, payee, credits, memo } = await readBody(req);
-        if (!validId(id)) throw new ApiError(400, "Invalid payment reference");
-        if (memo !== undefined && (typeof memo !== "string" || memo.length > NOTE_LIMIT)) {
-          throw new ApiError(400, `Payment notes can be up to ${NOTE_LIMIT} characters`);
+      if (role === "elder") {
+        if (pathname === "/api/payment-preview") {
+          const result = ward.previewPayment(paymentBody(body));
+          return send(res, 200, { checks: result.checks });
         }
-        let result;
-        try {
-          result = await ward.requestScreenedPayment({ id, payee, amount: toAtomic(credits), memo });
-        } catch (error) {
-          if (error.message === "Payment ID already used") throw new ApiError(409, error.message);
-          throw error;
+        if (pathname === "/api/payments") {
+          const payment = paymentBody(body);
+          if (!validId(payment.id)) throw new ApiError(400, "Invalid payment reference");
+          let result;
+          try {
+            result = await ward.requestScreenedPayment(payment, () => {
+              if (wallets.session(sessionId)?.family_id !== familyId) {
+                throw new ApiError(401, "This phone is no longer connected. Ask your family for a new link");
+              }
+            });
+          } catch (error) {
+            if (error.message === "Payment ID already used") throw new ApiError(409, error.message);
+            throw error;
+          }
+          return send(res, 200, { result, wallet: view() });
         }
-        return send(res, 200, { result, wallet: dashboard(role) });
+        if (pathname === "/api/family-requests") {
+          const data = body;
+          if (!validId(data.id)) throw new ApiError(400, "Invalid request reference");
+          ward.requestFamily(data);
+          return send(res, 201, view());
+        }
+        throw new ApiError(403, "Family access required");
       }
 
-      if (role !== "family") throw new ApiError(403, "Family access required");
+      if (["/api/payments", "/api/payment-preview", "/api/family-requests"].includes(pathname)) {
+        throw new ApiError(403, "Mama’s phone is required for this action");
+      }
       if (pathname === "/api/invites") {
-        if (invites.size >= 20) throw new ApiError(429, "Too many active links. Try again in a few minutes.");
-        const code = token();
-        invites.set(code, now + INVITE_MS);
+        if (body.replace !== undefined && typeof body.replace !== "boolean") {
+          throw new ApiError(400, "Choose whether to replace the connected phone");
+        }
+        const code = wallets.invite(familyId, body.replace === true);
         return send(res, 201, { link: `${origin}/elder#pair=${code}` });
       }
-      if (pathname === "/api/fund") {
-        const { id } = await readBody(req);
-        if (!validId(id)) throw new ApiError(400, "Invalid funding reference");
-        ward.creditMockFunding({ id, amount: fundingAmount });
-        return send(res, 200, dashboard(role));
+      if (pathname === "/api/unpair") {
+        wallets.unpair(familyId);
+        return send(res, 200, view());
+      }
+      if (pathname === "/api/funding-quote") {
+        const { source, dollars } = body;
+        const amount = toAtomic(dollars);
+        if (!Object.hasOwn(fundingSources, source) || !amount || amount === "0") {
+          throw new ApiError(400, "Choose a source and enter a positive dollar amount");
+        }
+        if ([...quotes.values()].filter(quote => quote.family_id === familyId).length >= 20) throw new ApiError(429, "Too many quotes. Try again in a few minutes.");
+        const id = token();
+        const quote = { id, family_id: familyId, amount, sender: wallets.family(familyId).child_name, expires: now + 5 * 60_000 };
+        quotes.set(id, quote);
+        let preview;
+        try {
+          preview = quoteFunding ? await quoteFunding({ source, amount }) : null;
+        } catch {
+          quotes.delete(id);
+          throw new ApiError(502, "The 1Click dry quote is unavailable. Try again in a moment");
+        }
+        quote.ready = true;
+        return send(res, 201, { id, label: fundingSources[source].label, dollars: format(amount),
+          mode: preview ? "1Click dry quote" : "Fixture quote", output: preview?.output ?? null });
+      }
+      if (pathname === "/api/funding-confirm") {
+        const { id } = body;
+        if (!validId(id)) throw new ApiError(400, "Invalid quote reference");
+        const quote = quotes.get(id);
+        if (quote?.family_id !== familyId || !quote.ready || quote.expires <= Date.now()) {
+          if (ward.receipts().some(row => row.id === id)) return send(res, 200, view());
+          throw new ApiError(409, "This quote expired. Request a new quote");
+        }
+        ward.creditMockFunding(quote);
+        quotes.delete(id);
+        return send(res, 200, view());
+      }
+      if (pathname === "/api/rules") {
+        ward.updateRules(rulesInput(body));
+        return send(res, 200, view());
+      }
+      if (pathname === "/api/freeze") {
+        ward.setFrozen(body.frozen);
+        return send(res, 200, view());
+      }
+      if (pathname === "/api/family-response") {
+        const data = body;
+        if (!validId(data.id)) throw new ApiError(400, "Invalid request reference");
+        ward.resolveFamilyRequest(data);
+        return send(res, 200, view());
       }
       if (pathname === "/api/review") {
-        const { id, approve } = await readBody(req);
+        const { id, approve } = body;
         if (!validId(id) || typeof approve !== "boolean") throw new ApiError(400, "Choose a payment and an action");
         let result;
         try {
@@ -149,11 +251,11 @@ export function createWalletApi({ ward, origin, familyCode, payees, fundingAmoun
           }
           throw error;
         }
-        return send(res, 200, { result, wallet: dashboard(role) });
+        return send(res, 200, { result, wallet: view() });
       }
       throw new ApiError(404, "Page unavailable");
     } catch (error) {
-      if (!(error instanceof ApiError)) console.error(error);
+      if (!error.status) console.error(error);
       if (!res.destroyed) send(res, error.status ?? 500, { error: error.status ? error.message : "Wallet is temporarily unavailable" });
     }
   };

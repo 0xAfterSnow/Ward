@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#123b32">
   <title>Mama Wallet</title>
+  <meta name="description" content="A wallet demo for sending money home with family spending rules.">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon-192.png">
   <link rel="apple-touch-icon" href="/icon-192.png">
@@ -20,28 +21,15 @@
         <span>Mama Wallet</span>
       </a>
       <span id="role" class="role">Demo wallet</span>
+      <button id="bigger" class="outline" type="button" aria-pressed="false" hidden>Bigger text</button>
     </div>
   </header>
   <main id="main" class="shell" tabindex="-1">
-    <p id="notice" role="status" aria-live="polite" class="notice" hidden></p>
+    <p id="notice" role="status" aria-live="polite" class="notice" tabindex="-1" hidden></p>
     <div id="screen" aria-busy="true"><h1>Opening your wallet…</h1></div>
   </main>
-  <dialog id="payment-dialog" aria-labelledby="payment-title">
-    <form id="payment-form">
-      <h2 id="payment-title">Make a payment</h2>
-      <p id="payment-description"></p>
-      <label id="amount-label">Amount in demo credits
-        <input id="amount" required type="text" inputmode="numeric" pattern="[0-9]{1,8}" maxlength="8" autocomplete="off">
-      </label>
-      <label id="note-label">Payment note (optional)
-        <textarea id="payment-note" maxlength="512" rows="2" placeholder="Avoid personal details"></textarea>
-      </label>
-      <p id="payment-error" role="alert" hidden></p>
-      <div class="actions">
-        <button type="submit" id="payment-next" class="primary">Review payment</button>
-        <button type="button" id="payment-cancel">Cancel</button>
-      </div>
-    </form>
+  <dialog id="wallet-dialog" aria-labelledby="dialog-title">
+    <form id="wallet-form"></form>
   </dialog>
   <footer class="shell">Demo mode <span aria-hidden="true">·</span> No real money moves</footer>
 </body>

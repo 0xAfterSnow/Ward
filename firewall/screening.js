@@ -7,16 +7,24 @@ export function normalizeNote(value) {
   return typeof value === "string" ? value.slice(0, NOTE_LIMIT).normalize("NFKC").slice(0, NOTE_LIMIT) : "";
 }
 
-export function scoreNote(note) {
+const patterns = [
+  ["urgency", 35, /\b(?:urgent|immediately|pay now|send now|act now|right now)\b/i],
+  ["secrecy", 40, /\b(?:(?:do not|don't|never) (?:tell|call|contact|ask)|keep (?:it|this) secret)\b/i],
+  ["bank or account threat", 35, /\b(?:arrested|arrest warrant|account (?:will be )?(?:frozen|closed)|gift cards?)\b/i],
+  ["policy override", 90, /\b(?:ignore|bypass|override|disable)\b.{0,55}\b(?:rules?|policy|limits?|checks?|instructions?)\b/is],
+];
+
+export function screenNote(note) {
   const text = normalizeNote(note);
-  if (/\b(?:ignore|bypass|override|disable)\b.{0,55}\b(?:rules?|policy|limits?|checks?|instructions?)\b/is.test(text)) {
-    return 90;
-  }
-  let score = 0;
-  if (/\b(?:urgent|immediately|pay now|send now|act now|right now)\b/i.test(text)) score += 35;
-  if (/\b(?:(?:do not|don't|never) (?:tell|call|contact|ask)|keep (?:it|this) secret)\b/i.test(text)) score += 40;
-  if (/\b(?:arrested|arrest warrant|account (?:will be )?(?:frozen|closed)|gift cards?)\b/i.test(text)) score += 35;
-  return Math.min(score, 100);
+  const matches = patterns.filter(([, , pattern]) => pattern.test(text));
+  const signals = matches.map(([name]) => name);
+  const score = signals.includes("policy override") ? 90
+    : Math.min(matches.reduce((total, [, weight]) => total + weight, 0), 100);
+  return { score, signals };
+}
+
+export function scoreNote(note) {
+  return screenNote(note).score;
 }
 
 export function validScore(score) {

@@ -1,10 +1,10 @@
-import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { amount, demoClock, demoPolicy, formatNear, labels } from "../demo/fixture.js";
-import { openMockWard } from "../firewall/mock-ward.js";
+import { formatNear } from "../demo/fixture.js";
+import { previewFunding } from "../firewall/funding.js";
+import { openFamilyWallets } from "../firewall/family-wallets.js";
 import { createWalletApi } from "../firewall/wallet-api.js";
 import { createNearAiScreener } from "../firewall/screening.js";
 
@@ -20,10 +20,22 @@ const assets = new Map(Object.entries({
   "/icon-512.png": ["icon-512.png", "image/png"],
 }));
 
-export function startWallet({ port = 4173, filename = ".ward/wallet.sqlite", cloudScreen } = {}) {
+export function dollarsToAtomic(value) {
+  if (typeof value !== "string" || !/^\d{1,8}(?:\.\d{1,2})?$/.test(value)) return null;
+  const [dollars, cents = ""] = value.split(".");
+  return String(BigInt(dollars) * 10n ** 24n + BigInt(cents.padEnd(2, "0")) * 10n ** 22n);
+}
+
+export function startWallet({
+  port = 4173, host = "127.0.0.1", publicOrigin, filename = ".ward/families.sqlite", cloudScreen, quoteFunding, clock,
+} = {}) {
+  const publicUrl = publicOrigin && new URL(publicOrigin);
+  if (publicUrl && (publicUrl.protocol !== "https:" || publicUrl.origin !== publicOrigin)) {
+    throw new Error("WARD_WALLET_ORIGIN must be an HTTPS origin without a path or trailing slash");
+  }
+  if (host !== "127.0.0.1" && !publicUrl) throw new Error("A non-loopback bind requires WARD_WALLET_ORIGIN");
   if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
-  const ward = openMockWard(filename, { policy: demoPolicy, clock: demoClock, cloudScreen });
-  const familyCode = randomBytes(32).toString("base64url");
+  const wallets = openFamilyWallets(filename, { clock, cloudScreen });
   let api;
   let origin;
   const server = createServer((req, res) => {
@@ -48,17 +60,20 @@ export function startWallet({ port = 4173, filename = ".ward/wallet.sqlite", clo
     res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache" });
     res.end(readFileSync(new URL(`./public/${name}`, import.meta.url)));
   });
-  server.on("close", () => ward.close());
+  server.on("close", () => wallets.close());
   return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => {
-      origin = `http://127.0.0.1:${server.address().port}`;
+    const onError = error => {
+      wallets.close();
+      reject(error);
+    };
+    server.once("error", onError);
+    server.listen(port, host, () => {
+      server.off("error", onError);
+      origin = publicUrl?.origin ?? `http://127.0.0.1:${server.address().port}`;
       api = createWalletApi({
-        ward, origin, familyCode, format: formatNear, fundingAmount: amount(10),
-        toAtomic: credits => typeof credits === "string" && /^\d{1,8}$/.test(credits) ? amount(credits) : null,
-        payees: demoPolicy.payees.map(id => ({ id, label: labels[id] })),
+        wallets, origin, format: formatNear, toAtomic: dollarsToAtomic, quoteFunding, clock,
       });
-      resolve({ server, origin, familyLink: `${origin}/family#family=${familyCode}` });
+      resolve({ server, origin });
     });
   });
 }
@@ -67,11 +82,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const cloudScreen = process.env.WARD_SCREENING === "near-ai"
     ? createNearAiScreener(process.env.NEAR_AI_API_KEY)
     : undefined;
-  const { origin, familyLink } = await startWallet({
+  const { WARD_QUOTE_RECIPIENT: recipient, WARD_QUOTE_REFUND_TO: refundTo, ONE_CLICK_JWT: jwt } = process.env;
+  const quoteFunding = recipient && refundTo ? async ({ source, amount }) => {
+    const quote = await previewFunding({ source, amount: String(BigInt(amount) / 10n ** 18n), recipient, refundTo, jwt });
+    return { output: formatNear(quote.amountOut) };
+  } : undefined;
+  const { origin } = await startWallet({
     port: Number(process.env.PORT ?? 4173),
     filename: process.env.WARD_WALLET_DB,
-    cloudScreen,
+    host: process.env.WARD_WALLET_HOST,
+    publicOrigin: process.env.WARD_WALLET_ORIGIN,
+    cloudScreen, quoteFunding,
   });
   console.log(`Mama Wallet local demo: ${origin}`);
-  console.log(`Private family setup link: ${familyLink}`);
+  console.log(`Create a demo family wallet: ${origin}/family`);
 }

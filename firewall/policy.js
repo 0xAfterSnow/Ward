@@ -21,9 +21,19 @@ export function block(ruleId, reason) {
 // All amounts are decimal strings in yoctoNEAR. spentToday comes from Ward's
 // trusted ledger. Free text on a request has no effect on these rules.
 export function check(tx, policy, nowMs = Date.now()) {
+  const checks = [];
+  const tested = (ruleId, passed, label) => {
+    checks.push({ ruleId, passed, label });
+    return passed;
+  };
+  const blocked = (id, reason) => ({ ...block(id, reason), checks });
+  if (policy?.frozen === true) {
+    tested("wallet_frozen", false, "Wallet is open");
+    return blocked("wallet_frozen", "Your family paused payments");
+  }
   const amount = amountOf(tx?.amount);
-  if (amount === null || amount === 0n || !isAccountId(tx?.payee)) {
-    return block("invalid_payment", "Payment requires a valid payee and a positive amount");
+  if (!tested("invalid_payment", amount !== null && amount > 0n && isAccountId(tx?.payee), "Valid payment details")) {
+    return blocked("invalid_payment", "Payment requires a valid payee and a positive amount");
   }
 
   const ceiling = amountOf(policy?.perTxCeiling);
@@ -32,35 +42,38 @@ export function check(tx, policy, nowMs = Date.now()) {
   const threshold = amountOf(policy?.approvalThreshold);
   const payees = policy?.payees;
   const windows = policy?.timeWindows === undefined ? [] : policy.timeWindows;
-  if (
+  const invalid =
     ceiling === null || ceiling === 0n || cap === null || cap === 0n || spent === null ||
     threshold === null || threshold > ceiling ||
-    !Array.isArray(payees) || payees.length === 0 || payees.length > 32 ||
+    !Array.isArray(payees) || payees.length > 32 ||
     !Array.from(payees).every(isAccountId) ||
     !Array.isArray(windows) || windows.length > 8 ||
     !Array.from(windows).every(validWindow) ||
-    !Number.isSafeInteger(nowMs) || nowMs < 0
-  ) {
-    return block("invalid_policy", "Policy configuration is missing or invalid");
+    !Number.isSafeInteger(nowMs) || nowMs < 0;
+  if (!tested("invalid_policy", !invalid, "Rules are ready")) {
+    return blocked("invalid_policy", "Policy configuration is missing or invalid");
   }
 
-  if (amount > ceiling) {
-    return block("per_tx_ceiling", "Payment exceeds per-transaction ceiling");
+  if (!tested("per_tx_ceiling", amount <= ceiling, "Within the payment limit")) {
+    return blocked("per_tx_ceiling", "Payment exceeds per-transaction ceiling");
   }
-  if (spent + amount > cap) {
-    return block("daily_cap", "Payment exceeds remaining daily cap");
+  if (!tested("daily_cap", spent + amount <= cap, "Within today’s limit")) {
+    return blocked("daily_cap", "Payment exceeds remaining daily cap");
   }
-  if (!payees.includes(tx.payee)) {
-    return block("payee_allowlist", "Payee is outside the allowlist");
+  const approved = payees.includes(tx.payee);
+  if (policy.openPayees === true) {
+    tested("recipient", true, approved ? "Approved place" : "Valid recipient");
+  } else if (!tested("payee_allowlist", approved, "Approved place")) {
+    return blocked("payee_allowlist", "Payee is outside the allowlist");
   }
   const minute = Math.floor(nowMs / 60_000) % MINUTES_PER_DAY;
-  if (windows.length > 0 && !windows.some(window => includesMinute(window, minute))) {
-    return block("time_window", "Payment is outside the UTC spending windows");
+  if (!tested("time_window", windows.length === 0 || windows.some(window => includesMinute(window, minute)), "Within spending hours")) {
+    return blocked("time_window", "Payment is outside the UTC spending windows");
   }
-  if (amount > threshold) {
-    return { decision: "HOLD", reason: "Family approval required", ruleId: "approval_threshold" };
+  if (!tested("approval_threshold", amount <= threshold, "Under the family review amount")) {
+    return { decision: "HOLD", reason: "Family approval required", ruleId: "approval_threshold", checks };
   }
-  return { decision: "ALLOW", reason: "Payment passed policy", ruleId: "policy_pass" };
+  return { decision: "ALLOW", reason: "Payment passed policy", ruleId: "policy_pass", checks };
 }
 
 function validWindow(window) {
