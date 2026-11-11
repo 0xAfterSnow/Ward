@@ -5,6 +5,7 @@ import { demoClock, demoPolicy, formatNear, labels } from "../demo/fixture.js";
 import { openFamilyWallets } from "./family-wallets.js";
 import { dollarsToAtomic } from "../mama-wallet/server.js";
 import { createWalletApi } from "./wallet-api.js";
+import { TESTNET_USDC, formatUsdc, usdcToAtomic } from "./testnet-usdc.js";
 
 const origin = "http://127.0.0.1:4173";
 const starter = {
@@ -12,12 +13,13 @@ const starter = {
   places: demoPolicy.payees.map(id => ({ id, label: labels[id] })),
 };
 
-function fixture(t, { cloudScreen } = {}) {
+function fixture(t, { cloudScreen, chain } = {}) {
   let now = demoClock();
   const clock = () => now;
   const wallets = openFamilyWallets(":memory:", { clock, authClock: clock, cloudScreen });
   t.after(() => wallets.close());
-  const api = createWalletApi({ wallets, origin, toAtomic: dollarsToAtomic, format: formatNear, clock });
+  const api = createWalletApi({ wallets, origin, toAtomic: chain?.asset === "usdc" ? usdcToAtomic : dollarsToAtomic,
+    format: chain?.asset === "usdc" ? formatUsdc : formatNear, clock, chain });
 
   async function request(path, { data, cookie, source = origin } = {}) {
     const req = Readable.from(data === undefined ? [] : [Buffer.from(JSON.stringify(data))]);
@@ -117,6 +119,12 @@ test("onboarding, pairing and wallet controls enforce roles and the starting rul
   assert.equal((await post("freeze", { frozen: "true" })).status, 400);
   assert.equal((await post("freeze", { frozen: true })).body.frozen, true);
   assert.equal((await post("payments", { ...pay, id: "frozen" }, elder)).body.result.ruleId, "wallet_frozen");
+  const alert = (await get(family)).blockedAlerts[0];
+  assert.equal(alert.ruleId, "wallet_frozen");
+  assert.equal((await post("acknowledge-block", { id: alert.alertId }, elder)).status, 403);
+  assert.equal((await post("acknowledge-block", { id: alert.alertId })).body.blockedAlerts.length, 0);
+  assert((await get(family)).audit.some(row => row.id === "frozen"));
+
   assert.equal((await post("review", { id: "pressure", approve: true })).body.result.ruleId, "wallet_frozen");
   assert.equal((await post("freeze", { frozen: false })).body.frozen, false);
   assert.equal((await post("review", { id: "pressure", approve: false })).body.result.ruleId, "family_rejected");
@@ -214,4 +222,158 @@ test("disconnecting a phone during screening prevents the payment from writing",
   const view = (await request("wallet", { cookie: family })).body;
   assert.equal(view.balance, "10");
   assert.deepEqual(view.audit, []);
+});
+
+test("Family sign-in restores only its own wallet after session expiry", async t => {
+  const { request, post, cookieOf, codeOf, setTime } = fixture(t);
+  const first = await post("onboarding", starter);
+  const second = await post("onboarding", { ...starter, childName: "Other family" });
+  const family = cookieOf(first);
+  const invite = codeOf(await post("invites", {}, family));
+  const elder = cookieOf(await post("pair", { code: invite }));
+  assert.equal((await post("family-sign-in-code", {}, elder)).status, 403);
+  assert.equal((await post("family-sign-in-code", {})).status, 401);
+  const previous = (await post("family-sign-in-code", {}, family)).body.code;
+  const created = await post("family-sign-in-code", {}, family);
+  assert.equal(created.headers["Cache-Control"], "no-store");
+  assert.match(created.body.code, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal((await post("family-sign-in", { code: previous })).status, 401);
+  assert.equal((await post("family-sign-in", { code: created.body.code }, elder)).status, 409);
+
+  setTime(demoClock() + 31 * 86_400_000);
+  assert.equal((await request("wallet", { cookie: family })).status, 401);
+  const restored = await post("family-sign-in", { code: created.body.code });
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.role, "family");
+  assert.equal(restored.body.address, first.body.address);
+  assert.notEqual(restored.body.address, second.body.address);
+  assert.equal(restored.body.hasSignIn, true);
+  assert.equal(restored.body.code, undefined);
+  const session = cookieOf(restored);
+  const out = await post("family-sign-out", {}, session);
+  assert.match(out.headers["Set-Cookie"], /Max-Age=0/);
+  assert.equal((await request("wallet", { cookie: session })).status, 401);
+});
+
+test("testnet routes require a finalized chain receipt and surface blocked transfers to the family", async t => {
+  const owner = "1".repeat(64);
+  const requester = "2".repeat(64);
+  const scoped = "3".repeat(64);
+  const address = "vault.test";
+  const state = {
+    approver: owner, requester: null, openPayees: true, frozen: false, pending: null,
+    balance: dollarsToAtomic("4"), dailyCap: dollarsToAtomic("5"), leftToday: dollarsToAtomic("5"),
+    perTxCeiling: dollarsToAtomic("3"), approvalThreshold: dollarsToAtomic("1"),
+  };
+  let ready = false;
+  let prepared;
+  let settle = false;
+  const chain = {
+    async provision(account) { assert.equal(account, owner); return address; },
+    async state(vault) { assert.equal(vault, address); return state; },
+    async scoped(account, key) { return ready && account === requester && key === scoped; },
+    async prepare(intent) { prepared = intent; return { bytes: "AQ==", hash: "test-hash" }; },
+    async finalized(intent) {
+      assert.equal(intent.hash, "test-hash");
+      return [{
+        event: "payment_decision", requestId: settle ? "1" : null,
+        amount: dollarsToAtomic("1"), payee: "recipient.test",
+        result: settle ? { decision: "ALLOW", ruleId: "policy_pass", reason: "Allowed" }
+          : { decision: "BLOCK", ruleId: "wallet_frozen", reason: "Frozen" },
+      }];
+    },
+  };
+  const { request, post, cookieOf, codeOf } = fixture(t, { chain });
+  assert.deepEqual((await request("mode")).body, { mode: "testnet" });
+  const setup = await post("onboarding", { ...starter, account: owner });
+  const family = cookieOf(setup);
+  assert.equal(setup.body.mode, "testnet");
+  assert.equal(setup.body.balance, "4");
+  assert.equal((await post("funding-confirm", { id: "local" }, family)).status, 409);
+  const code = codeOf(await post("invites", {}, family));
+  const elder = cookieOf(await post("pair", { code, account: requester, scoped }));
+  const pay = { id: "chain-pay", op: "pay", payee: "recipient.test", dollars: "1", asked: "yes" };
+  assert.equal((await post("chain-prepare", pay, elder)).status, 409);
+  assert.equal((await post("chain-prepare", pay, family)).status, 403);
+
+  state.requester = requester;
+  const scope = { id: "chain-scope", op: "scope" };
+  assert.equal((await post("chain-prepare", scope, elder)).status, 200);
+  assert.equal(prepared.signer, requester);
+  assert.equal(prepared.keyHex, requester);
+  assert.deepEqual(prepared.args, { scoped });
+
+  ready = true;
+  assert.equal((await post("unpair", {}, family)).status, 409);
+  assert.equal((await post("chain-prepare", pay, elder)).status, 200);
+  assert.equal(prepared.signer, requester);
+  assert.equal(prepared.keyHex, scoped);
+  assert.equal(prepared.args.force_review, true);
+  assert.deepEqual((await request("wallet", { cookie: family })).body.blockedAlerts, []);
+  assert.equal((await post("chain-finish", { id: pay.id }, family)).status, 404);
+  assert.equal((await post("chain-finish", { id: pay.id }, elder)).body.result.ruleId, "wallet_frozen");
+  assert.equal((await post("chain-finish", { id: pay.id }, elder)).status, 200);
+  const after = (await request("wallet", { cookie: family })).body;
+  assert.equal(after.balance, "4");
+  assert.equal(after.blockedAlerts.length, 1);
+  assert.equal(after.blockedAlerts[0].hash, "test-hash");
+  const alertId = after.blockedAlerts[0].alertId;
+  assert.equal((await request("wallet", { cookie: elder })).body.payments[0].seenByFamily, false);
+  assert.equal((await post("acknowledge-block", { id: alertId }, elder)).status, 403);
+  const seen = await post("acknowledge-block", { id: alertId }, family);
+  assert.deepEqual(seen.body.blockedAlerts, []);
+  assert(seen.body.audit.some(row => row.hash === "test-hash" && row.decision === "BLOCK"));
+  assert.equal((await request("wallet", { cookie: elder })).body.payments[0].seenByFamily, true);
+
+  settle = true;
+  assert.equal((await post("chain-prepare", { ...pay, id: "failed-settlement" }, elder)).status, 200);
+  const failure = await post("chain-finish", { id: "failed-settlement" }, elder);
+  assert.equal(failure.body.result.ruleId, "settlement_failed");
+});
+
+test("USDC uses a separate session, six-decimal units and recipient registration", async t => {
+  const account = "a".repeat(64);
+  const elderAccount = "b".repeat(64);
+  const scoped = "c".repeat(64);
+  const state = {
+    balance: "25000000", requester: elderAccount, frozen: false, pending: null,
+    dailyCap: "5000000", leftToday: "5000000", perTxCeiling: "3000000", approvalThreshold: "1000000",
+  };
+  let registered = false;
+  let prepared;
+  const chain = {
+    asset: "usdc", token: TESTNET_USDC, registrationCost: "0.00125",
+    async provision(_, rules) {
+      assert.equal(rules.dailyCap, "5000000");
+      return "vault.fixture.test";
+    },
+    async state() { return state; },
+    async scoped() { return true; },
+    async isRegistered() { return registered; },
+    async prepare(intent) { prepared = intent; return { bytes: "AQ==", hash: "usdc-fixture" }; },
+  };
+  const { request, post, cookieOf, codeOf } = fixture(t, { chain });
+  assert.deepEqual((await request("mode")).body, {
+    mode: "testnet", asset: "usdc", token: TESTNET_USDC, registrationCost: "0.00125",
+  });
+  const setup = await post("onboarding", { ...starter, account });
+  const family = cookieOf(setup);
+  assert.match(family, /^ward_usdc_session=/);
+  assert.equal(setup.body.balance, "25");
+  assert.equal((await request("wallet", { cookie: family.replace("ward_usdc_session", "ward_session") })).status, 401);
+  const invite = codeOf(await post("invites", {}, family));
+  const elder = cookieOf(await post("pair", { code: invite, account: elderAccount, scoped }));
+  const pay = { id: "usdc-pay", op: "pay", payee: "recipient.test", dollars: "1.25" };
+  assert.equal((await post("chain-prepare", pay, elder)).status, 422);
+  const register = { id: "usdc-register", op: "register", recipient: pay.payee };
+  assert.equal((await post("chain-prepare", register, elder)).status, 403);
+  assert.equal((await post("chain-prepare", register, family)).status, 200);
+  assert.deepEqual(prepared.args, { recipient: pay.payee });
+  registered = true;
+  assert.equal((await post("chain-prepare", pay, elder)).status, 200);
+  assert.equal(prepared.args.amount, "1250000");
+  assert.equal((await post("chain-prepare", { id: "fund", op: "fund", dollars: "12.34" }, family)).status, 200);
+  assert.equal(prepared.args.amount, "12340000");
+  assert.equal(formatUsdc("1250001"), "1.250001");
+  assert.equal(usdcToAtomic("12.345"), null);
 });

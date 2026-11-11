@@ -1,17 +1,20 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname } from "node:path";
+import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { formatNear } from "../demo/fixture.js";
 import { previewFunding } from "../firewall/funding.js";
 import { openFamilyWallets } from "../firewall/family-wallets.js";
 import { createWalletApi } from "../firewall/wallet-api.js";
+import { formatUsdc, usdcToAtomic } from "../firewall/testnet-usdc.js";
 import { createNearAiScreener } from "../firewall/screening.js";
 
 const assets = new Map(Object.entries({
   "/": ["index.html", "text/html; charset=utf-8"],
   "/elder": ["index.html", "text/html; charset=utf-8"],
   "/family": ["index.html", "text/html; charset=utf-8"],
+  "/testnet.js": ["testnet.js", "text/javascript; charset=utf-8"],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
   "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json"],
@@ -27,8 +30,9 @@ export function dollarsToAtomic(value) {
 }
 
 export function startWallet({
-  port = 4173, host = "127.0.0.1", publicOrigin, filename = ".ward/families.sqlite", cloudScreen, quoteFunding, clock,
+  port = 4173, host = "127.0.0.1", publicOrigin, filename = ".ward/families.sqlite", cloudScreen, quoteFunding, chain, clock,
 } = {}) {
+  if (chain && (host !== "127.0.0.1" || publicOrigin)) throw new Error("Testnet sponsorship currently requires loopback");
   const publicUrl = publicOrigin && new URL(publicOrigin);
   if (publicUrl && (publicUrl.protocol !== "https:" || publicUrl.origin !== publicOrigin)) {
     throw new Error("WARD_WALLET_ORIGIN must be an HTTPS origin without a path or trailing slash");
@@ -44,7 +48,8 @@ export function startWallet({
       return;
     }
     const pathname = req.url.split("?")[0];
-    res.setHeader("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    const connect = chain ? " connect-src 'self' https://test.rpc.fastnear.com;" : "";
+    res.setHeader("Content-Security-Policy", `default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self';${connect}`);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
     if (pathname.startsWith("/api/")) {
@@ -71,7 +76,8 @@ export function startWallet({
       server.off("error", onError);
       origin = publicUrl?.origin ?? `http://127.0.0.1:${server.address().port}`;
       api = createWalletApi({
-        wallets, origin, format: formatNear, toAtomic: dollarsToAtomic, quoteFunding, clock,
+        wallets, origin, format: chain?.asset === "usdc" ? formatUsdc : formatNear,
+        toAtomic: chain?.asset === "usdc" ? usdcToAtomic : dollarsToAtomic, quoteFunding, chain, clock,
       });
       resolve({ server, origin });
     });
@@ -79,6 +85,16 @@ export function startWallet({
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const usdc = process.argv.includes("--testnet");
+  const testnet = usdc || process.argv.includes("--testnet-native");
+  let chain;
+  if (testnet) {
+    try { loadEnvFile(); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    const { openBrowserTestnet } = await import("../firewall/vault/sandbox/browser-testnet.js");
+    chain = await openBrowserTestnet({
+      parent: process.env.WARD_TESTNET_PARENT, keyPath: process.env.WARD_TESTNET_SPONSOR_KEY, asset: usdc ? "usdc" : "near",
+    });
+  }
   const cloudScreen = process.env.WARD_SCREENING === "near-ai"
     ? createNearAiScreener(process.env.NEAR_AI_API_KEY)
     : undefined;
@@ -89,11 +105,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   } : undefined;
   const { origin } = await startWallet({
     port: Number(process.env.PORT ?? 4173),
-    filename: process.env.WARD_WALLET_DB,
+    filename: usdc ? process.env.WARD_TESTNET_USDC_DB ?? ".ward/testnet-usdc-families.sqlite"
+      : testnet ? process.env.WARD_TESTNET_WALLET_DB ?? ".ward/testnet-families.sqlite" : process.env.WARD_WALLET_DB,
     host: process.env.WARD_WALLET_HOST,
     publicOrigin: process.env.WARD_WALLET_ORIGIN,
-    cloudScreen, quoteFunding,
+    cloudScreen, quoteFunding, chain,
   });
-  console.log(`Mama Wallet local demo: ${origin}`);
-  console.log(`Create a demo family wallet: ${origin}/family`);
+  if (testnet) console.log(`Mama Wallet on NEAR testnet (${usdc ? "USDC" : "native NEAR"}): ${origin}/family`);
+  else {
+    console.log(`Mama Wallet local demo: ${origin}`);
+    console.log(`Create a demo family wallet: ${origin}/family`);
+  }
 }

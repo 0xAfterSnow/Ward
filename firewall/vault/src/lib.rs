@@ -1,6 +1,6 @@
 use near_sdk::json_types::{U64, U128};
 use near_sdk::serde_json::json;
-use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, PromiseError, env, near};
+use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, PromiseError, PublicKey, env, near};
 
 const DAY_MS: u64 = 86_400_000;
 const MINUTE_MS: u64 = 60_000;
@@ -76,7 +76,11 @@ impl Decision {
 #[derive(PanicOnDefault)]
 // The protocol-level access key checks are covered separately by sandbox/verify.js.
 pub struct Vault {
-    requester: AccountId,
+    requester: Option<AccountId>,
+    requester_key: Option<PublicKey>,
+    open_payees: bool,
+    token: Option<AccountId>,
+    frozen: bool,
     approver: AccountId,
     payees: Vec<AccountId>,
     daily_cap: u128,
@@ -110,7 +114,11 @@ impl Vault {
             daily_cap.0 > 0 && per_tx_ceiling.0 > 0 && approval_threshold.0 <= per_tx_ceiling.0
         );
         Self {
-            requester,
+            requester: Some(requester),
+            requester_key: None,
+            open_payees: false,
+            token: None,
+            frozen: false,
             approver,
             payees,
             daily_cap: daily_cap.0,
@@ -124,29 +132,127 @@ impl Vault {
         }
     }
 
-    pub fn request_payment(&mut self, payee: AccountId, amount: U128) -> Decision {
-        assert_eq!(
-            env::predecessor_account_id(),
-            self.requester,
-            "Requester only"
-        );
+    #[init]
+    pub fn new_family(
+        approver: AccountId,
+        daily_cap: U128,
+        per_tx_ceiling: U128,
+        approval_threshold: U128,
+    ) -> Self {
+        Self::family(approver, daily_cap, per_tx_ceiling, approval_threshold, None)
+    }
+
+    #[init]
+    pub fn new_token_family(
+        approver: AccountId,
+        daily_cap: U128,
+        per_tx_ceiling: U128,
+        approval_threshold: U128,
+        token: AccountId,
+    ) -> Self {
+        assert_ne!(token, env::current_account_id(), "Use a separate token contract");
+        Self::family(approver, daily_cap, per_tx_ceiling, approval_threshold, Some(token))
+    }
+
+    pub fn ft_on_transfer(&self, sender_id: AccountId, amount: U128, msg: String) -> U128 {
+        assert_eq!(self.token.as_ref(), Some(&env::predecessor_account_id()), "Configured token only");
+        let _ = (sender_id, amount, msg);
+        U128(0)
+    }
+
+    pub fn set_requester(&mut self, requester: Option<AccountId>, requester_key: Option<PublicKey>) {
+        self.assert_approver();
+        assert!(requester.as_ref().is_none_or(|id| id != &self.approver && id != &env::current_account_id()));
+        assert!(!self.open_payees || requester.is_some() == requester_key.is_some(), "Set the scoped key with the device");
+        if requester != self.requester || requester_key != self.requester_key {
+            if let Some(payment) = self.pending.take() {
+                Decision::block("device_replaced", "The requesting device was disconnected")
+                    .record(Some(payment.id), &payment.payee, payment.amount);
+            }
+            self.requester = requester;
+            self.requester_key = requester_key;
+        }
+    }
+
+    pub fn set_limits(&mut self, daily_cap: U128, per_tx_ceiling: U128, approval_threshold: U128) {
+        self.assert_approver();
+        Self::validate_limits(daily_cap, per_tx_ceiling, approval_threshold);
+        self.daily_cap = daily_cap.0;
+        self.per_tx_ceiling = per_tx_ceiling.0;
+        self.approval_threshold = approval_threshold.0;
+    }
+
+    pub fn set_frozen(&mut self, frozen: bool) {
+        self.assert_approver();
+        self.frozen = frozen;
+    }
+
+    pub fn add_payee(&mut self, payee: AccountId) {
+        self.assert_approver();
+        assert!(!self.open_payees, "Open-recipient wallets use off-chain shortcuts");
+        assert_ne!(payee, env::current_account_id());
+        if !self.payees.contains(&payee) {
+            assert!(self.payees.len() < MAX_PAYEES, "Payee list is full");
+            self.payees.push(payee);
+        }
+    }
+
+    pub fn remove_payee(&mut self, payee: AccountId) {
+        self.assert_approver();
+        assert!(!self.open_payees, "Open-recipient wallets use off-chain shortcuts");
+        self.payees.retain(|id| id != &payee);
+    }
+
+    pub fn withdraw(&self, amount: U128) {
+        self.assert_approver();
+        assert!(amount.0 > 0 && self.can_schedule(amount.0), "Invalid withdrawal amount or insufficient NEAR for gas");
+        let transfer = self.transfer(&self.approver, amount.0);
+        env::promise_return(transfer);
+    }
+
+    pub fn wallet_state(&self) -> near_sdk::serde_json::Value {
+        let day = env::block_timestamp_ms() / DAY_MS;
+        json!({
+            "requester": self.requester,
+            "approver": self.approver,
+            "openPayees": self.open_payees,
+            "frozen": self.frozen,
+            "dailyCap": U128(self.daily_cap),
+            "perTxCeiling": U128(self.per_tx_ceiling),
+            "approvalThreshold": U128(self.approval_threshold),
+            "leftToday": U128(self.daily_cap.saturating_sub(self.spent_on(day))),
+            "token": self.token,
+            "balance": self.token.is_none().then(|| U128(Self::spendable())),
+            "pending": self.pending.as_ref().map(|p| json!({
+                "id": U64(p.id), "payee": p.payee, "amount": U128(p.amount)
+            })),
+        })
+    }
+
+    pub fn request_payment(&mut self, payee: AccountId, amount: U128, force_review: Option<bool>) -> Decision {
+        assert_eq!(Some(env::predecessor_account_id()), self.requester, "Requester only");
+        if let Some(key) = &self.requester_key {
+            assert_eq!(&env::signer_account_pk(), key, "Scoped requester key only");
+        }
         let amount = amount.0;
         let now = env::block_timestamp_ms();
         if let Some(block) = self.hard_block(&payee, amount, now) {
             return block.record(None, &payee, amount);
         }
 
-        if amount > self.approval_threshold && self.pending.is_some() {
+        let forced = force_review.unwrap_or(false);
+        let needs_review = forced || amount > self.approval_threshold;
+        if needs_review && self.pending.is_some() {
             return Decision::block("pending_full", "Resolve the existing hold first")
                 .record(None, &payee, amount);
         }
 
         let id = self.next_id;
         self.next_id += 1;
-        if amount > self.approval_threshold {
+        if needs_review {
             let result = Decision {
                 decision: "HOLD",
-                rule_id: "approval_threshold",
+                rule_id: if forced { "requested_review" } else { "approval_threshold" },
                 reason: "Family approval required",
             }
             .record(Some(id), &payee, amount);
@@ -162,11 +268,7 @@ impl Vault {
     }
 
     pub fn resolve_payment(&mut self, request_id: U64, approve: bool) -> Decision {
-        assert_eq!(
-            env::predecessor_account_id(),
-            self.approver,
-            "Approver only"
-        );
+        self.assert_approver();
         let pending = self.pending.as_ref().expect("No pending request");
         assert_eq!(pending.id, request_id.0, "Pending request ID mismatch");
 
@@ -194,18 +296,100 @@ impl Vault {
         request_id: U64,
         #[callback_result] result: Result<(), PromiseError>,
     ) {
-        env::log_str(
-            &json!({
-                "event": "payment_settlement",
-                "requestId": request_id,
-                "status": if result.is_ok() { "SETTLED" } else { "FAILED" }
-            })
-            .to_string(),
-        );
+        Self::log_settlement(request_id, result.is_ok());
     }
+
+    #[private]
+    pub fn record_token_settlement(
+        &mut self,
+        request_id: U64,
+        amount: U128,
+        day: U64,
+        #[callback_result] result: Result<(), PromiseError>,
+    ) {
+        if result.is_err() && self.spend_day == day.0 {
+            self.daily_spent = self.daily_spent.saturating_sub(amount.0);
+        }
+        Self::log_settlement(request_id, result.is_ok());
+    }
+
 }
 
 impl Vault {
+    fn log_settlement(request_id: U64, settled: bool) {
+        env::log_str(&json!({
+            "event": "payment_settlement",
+            "requestId": request_id,
+            "status": if settled { "SETTLED" } else { "FAILED" }
+        }).to_string());
+    }
+
+    fn family(
+        approver: AccountId,
+        daily_cap: U128,
+        per_tx_ceiling: U128,
+        approval_threshold: U128,
+        token: Option<AccountId>,
+    ) -> Self {
+        let vault = env::current_account_id();
+        let (_, sponsor) = vault.as_str().split_once('.').expect("Named vault required");
+        assert_eq!(env::predecessor_account_id().as_str(), sponsor, "Sponsor only");
+        assert_ne!(approver, vault, "Use a separate approver account");
+        Self::validate_limits(daily_cap, per_tx_ceiling, approval_threshold);
+        Self {
+            requester: None,
+            requester_key: None,
+            open_payees: true,
+            token,
+            frozen: false,
+            approver,
+            payees: vec![],
+            daily_cap: daily_cap.0,
+            per_tx_ceiling: per_tx_ceiling.0,
+            approval_threshold: approval_threshold.0,
+            time_windows: vec![],
+            spend_day: 0,
+            daily_spent: 0,
+            next_id: 1,
+            pending: None,
+        }
+    }
+
+    fn can_schedule(&self, amount: u128) -> bool {
+        Self::spendable() >= if self.token.is_some() { 1 } else { amount }
+    }
+
+    fn transfer(&self, payee: &AccountId, amount: u128) -> near_sdk::PromiseIndex {
+        if let Some(token) = &self.token {
+            // The token contract atomically checks and debits its actual balance.
+            let transfer = env::promise_batch_create(token);
+            let args = json!({ "receiver_id": payee, "amount": U128(amount) }).to_string();
+            env::promise_batch_action_function_call(
+                transfer, "ft_transfer", args.as_bytes(),
+                NearToken::from_yoctonear(1), Gas::from_tgas(25),
+            );
+            transfer
+        } else {
+            let transfer = env::promise_batch_create(payee);
+            env::promise_batch_action_transfer(transfer, NearToken::from_yoctonear(amount));
+            transfer
+        }
+    }
+
+    fn assert_approver(&self) {
+        assert_eq!(env::predecessor_account_id(), self.approver, "Approver only");
+    }
+
+    fn validate_limits(daily: U128, ceiling: U128, threshold: U128) {
+        assert!(daily.0 > 0 && ceiling.0 > 0 && ceiling.0 <= daily.0 && threshold.0 <= ceiling.0, "Invalid spending limits");
+    }
+
+    fn spendable() -> u128 {
+        let reserve = u128::from(env::storage_usage() + PENDING_STORAGE_BYTES)
+            * env::storage_byte_cost().as_yoctonear();
+        env::account_balance().as_yoctonear().saturating_sub(reserve)
+    }
+
     fn spent_on(&self, day: u64) -> u128 {
         if self.spend_day == day {
             self.daily_spent
@@ -215,10 +399,13 @@ impl Vault {
     }
 
     fn hard_block(&self, payee: &AccountId, amount: u128, now: u64) -> Option<Decision> {
-        if amount == 0 {
+        if self.frozen {
+            return Some(Decision::block("wallet_frozen", "Your family paused payments"));
+        }
+        if amount == 0 || payee == &env::current_account_id() {
             return Some(Decision::block(
                 "invalid_payment",
-                "Payment amount must be positive",
+                "Use a positive amount and a separate recipient",
             ));
         }
         if amount > self.per_tx_ceiling {
@@ -233,7 +420,7 @@ impl Vault {
                 "Payment exceeds remaining daily cap",
             ));
         }
-        if !self.payees.contains(payee) {
+        if !self.open_payees && !self.payees.contains(payee) {
             return Some(Decision::block(
                 "payee_allowlist",
                 "Payee is outside the allowlist",
@@ -252,13 +439,10 @@ impl Vault {
             ));
         }
 
-        let reserve = u128::from(env::storage_usage() + PENDING_STORAGE_BYTES)
-            * env::storage_byte_cost().as_yoctonear();
-        if amount
-            > env::account_balance()
-                .as_yoctonear()
-                .saturating_sub(reserve)
-        {
+        if !self.can_schedule(amount) {
+            if self.token.is_some() {
+                return Some(Decision::block("vault_gas", "Vault needs test NEAR for token transfers"));
+            }
             return Some(Decision::block(
                 "vault_balance",
                 "Vault has insufficient spendable balance",
@@ -268,7 +452,7 @@ impl Vault {
     }
 
     fn schedule_payment(&mut self, id: u64, payee: AccountId, amount: u128, day: u64) -> Decision {
-        // Charge the cap at scheduling time. A failed receipt still counts for this UTC day.
+        // Reserve against the daily cap before sending. The token callback releases failed transfers.
         self.daily_spent = self.spent_on(day) + amount;
         self.spend_day = day;
         let result = Decision {
@@ -279,14 +463,17 @@ impl Vault {
         .record(Some(id), &payee, amount);
         // Use only the host actions this vault needs. The generic Promise
         // builder also links gas-key actions unavailable on protocol 84.
-        let transfer = env::promise_batch_create(&payee);
-        env::promise_batch_action_transfer(transfer, NearToken::from_yoctonear(amount));
+        let transfer = self.transfer(&payee, amount);
         let callback = env::promise_batch_then(transfer, &env::current_account_id());
-        let args = json!({ "request_id": U64(id) }).to_string();
+        let (method, args) = if self.token.is_some() {
+            ("record_token_settlement", json!({ "request_id": U64(id), "amount": U128(amount), "day": U64(day) }))
+        } else {
+            ("record_settlement", json!({ "request_id": U64(id) }))
+        };
         env::promise_batch_action_function_call(
             callback,
-            "record_settlement",
-            args.as_bytes(),
+            method,
+            args.to_string().as_bytes(),
             NearToken::from_yoctonear(0),
             Gas::from_tgas(10),
         );

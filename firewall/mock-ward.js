@@ -318,8 +318,45 @@ export function createMockWard(db, { familyId = "local", policy, clock = Date.no
       return entries.all().filter(row => row.ruleId !== null).map(withDetails);
     },
 
+    recordChainDecision({ hash, event, kind, decision, ruleId, reason }) {
+      const id = kind === "review_attempt" ? `${event.requestId}:${hash}` : event.requestId ?? hash;
+      return atomic(() => {
+        if (!find.get(kind, id)) record(kind, id, new Date(clock()).toISOString(),
+          event.payee, event.amount, decision, ruleId, reason, { hash });
+      });
+    },
+
+    blockedAlerts() {
+      return entries.all().filter(row => (row.kind === "payment" || row.ruleId === "device_replaced") && row.decision === "BLOCK"
+        && !find.get("alert_seen", String(row.sequence))).map(withDetails).reverse();
+    },
+
+    blockSeen(sequence) {
+      return Boolean(find.get("alert_seen", String(sequence)));
+    },
+
+    acknowledgeBlock(sequence) {
+      return atomic(() => {
+        const alert = entries.all().find(row => String(row.sequence) === sequence
+          && (row.kind === "payment" || row.ruleId === "device_replaced") && row.decision === "BLOCK");
+        if (!alert) throw new WardInputError("Blocked payment not found", 404);
+        if (!find.get("alert_seen", sequence)) {
+          record("alert_seen", sequence, new Date(clock()).toISOString(), null, null, null, null, null);
+        }
+      });
+    },
+
+    recordChainFunding({ hash, amount, sender }) {
+      return atomic(() => {
+        if (!find.get("chain_funding", hash)) {
+          record("chain_funding", hash, new Date(clock()).toISOString(), null, amount, null, null, null, { sender });
+        }
+      });
+    },
+
     receipts() {
-      return entries.all().filter(row => row.kind === "funding").map(withDetails).filter(row => row.sender);
+      return entries.all().filter(row => row.kind === "funding" || row.kind === "chain_funding")
+        .map(withDetails).filter(row => row.sender);
     },
 
     status() {

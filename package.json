@@ -17,6 +17,8 @@
     "demo:hold": "node demo/run.js hold",
     "demo:approve": "node demo/run.js approve",
     "dev": "node mama-wallet/server.js",
+    "dev:testnet": "node mama-wallet/server.js --testnet",
+    "dev:testnet:near": "node mama-wallet/server.js --testnet-native",
     "demo:scam": "node demo/run.js scam",
     "demo:injection": "node demo/run.js injection",
     "deploy:vault:testnet": "node firewall/vault/sandbox/testnet.js deploy",

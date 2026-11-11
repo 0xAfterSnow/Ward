@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { loadEnvFile } from "node:process";
 import { isAccountId } from "../../policy.js";
 
 const build = "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS='--cfg near -C target-feature=-reference-types,-multivalue' cargo build --locked --manifest-path firewall/vault/Cargo.toml --target wasm32-unknown-unknown --release";
@@ -22,6 +23,12 @@ ${build}
 npm run deploy:vault:testnet -- --execute
 npm run demo:vault`);
     return;
+  }
+
+  try {
+    loadEnvFile();
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
   }
 
   const parent = process.env.WARD_TESTNET_PARENT;
