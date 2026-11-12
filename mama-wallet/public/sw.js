@@ -1,6 +1,6 @@
 // Cache only the public shell. API responses and session data never enter CacheStorage.
-const CACHE = 'mama-shell-v5';
-const ASSETS = ['/illustrations/family-connect.webp','/illustrations/family-help.webp','/illustrations/wallet-care.webp','/illustrations/family-ready.webp','/brand/mama-wallet-logo.webp','/favicon.ico','/favicon-32.png','/apple-touch-icon.png','/illustrations/family-ready.png', '/', '/app.js', '/views.js', '/router.js', '/components.js', '/api.js', '/style.css', '/fonts/manrope-variable.woff2', '/icon-192.png', '/icon-512.png'];
+const CACHE = 'mama-shell-v6';
+const ASSETS = ['/illustrations/family-connect.webp','/illustrations/family-help.webp','/illustrations/wallet-care.webp','/illustrations/family-ready.webp','/brand/mama-wallet-logo.webp','/favicon.ico','/favicon-32.png','/apple-touch-icon.png','/', '/app.js', '/views.js', '/router.js', '/components.js', '/api.js', '/style.css', '/fonts/manrope-variable.woff2', '/icon-192.png', '/icon-512.png'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('mama-shell-') && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', event => {

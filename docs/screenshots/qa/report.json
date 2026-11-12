@@ -1,0 +1,251 @@
+{
+  "screens": [
+    "welcome",
+    "about-you",
+    "starting-rules",
+    "custom-rules",
+    "wallet-created",
+    "invite",
+    "invite-waiting",
+    "parent-landing",
+    "invite-connected",
+    "elder-empty",
+    "family-empty",
+    "add-money",
+    "funding-review",
+    "funding-success",
+    "elder-home",
+    "family-home",
+    "pay-amount",
+    "pay-question",
+    "pay-review",
+    "pay-sent",
+    "pay-waiting",
+    "family-needs-you",
+    "new-payee",
+    "save-place",
+    "request-success",
+    "help",
+    "ask-family",
+    "protection",
+    "edit-rules",
+    "freeze-confirm",
+    "freeze-success",
+    "pay-stopped",
+    "family-activity",
+    "activity-held",
+    "activity-stopped",
+    "elder-activity",
+    "elder-bigger-text",
+    "mama",
+    "sign-in-code-confirm",
+    "sign-in-code",
+    "replace-device",
+    "unpair-device",
+    "sign-in",
+    "offline",
+    "funding-error",
+    "loading"
+  ],
+  "errors": [],
+  "flows": [
+    "onboard",
+    "pair",
+    "add money",
+    "keyboard-only Elder pay",
+    "hold + approve",
+    "reject",
+    "new payee payment",
+    "save place + approve",
+    "ask family",
+    "freeze + stopped + unfreeze",
+    "replace + unpair device",
+    "family sign-in"
+  ],
+  "accessibility": [
+    {
+      "screen": "welcome",
+      "violations": []
+    },
+    {
+      "screen": "about-you",
+      "violations": []
+    },
+    {
+      "screen": "starting-rules",
+      "violations": []
+    },
+    {
+      "screen": "custom-rules",
+      "violations": []
+    },
+    {
+      "screen": "wallet-created",
+      "violations": []
+    },
+    {
+      "screen": "invite",
+      "violations": []
+    },
+    {
+      "screen": "invite-waiting",
+      "violations": []
+    },
+    {
+      "screen": "parent-landing",
+      "violations": []
+    },
+    {
+      "screen": "invite-connected",
+      "violations": []
+    },
+    {
+      "screen": "elder-empty",
+      "violations": []
+    },
+    {
+      "screen": "family-empty",
+      "violations": []
+    },
+    {
+      "screen": "add-money",
+      "violations": []
+    },
+    {
+      "screen": "funding-review",
+      "violations": []
+    },
+    {
+      "screen": "funding-success",
+      "violations": []
+    },
+    {
+      "screen": "elder-home",
+      "violations": []
+    },
+    {
+      "screen": "family-home",
+      "violations": []
+    },
+    {
+      "screen": "pay-amount",
+      "violations": []
+    },
+    {
+      "screen": "pay-question",
+      "violations": []
+    },
+    {
+      "screen": "pay-review",
+      "violations": []
+    },
+    {
+      "screen": "pay-sent",
+      "violations": []
+    },
+    {
+      "screen": "pay-waiting",
+      "violations": []
+    },
+    {
+      "screen": "family-needs-you",
+      "violations": []
+    },
+    {
+      "screen": "new-payee",
+      "violations": []
+    },
+    {
+      "screen": "save-place",
+      "violations": []
+    },
+    {
+      "screen": "request-success",
+      "violations": []
+    },
+    {
+      "screen": "help",
+      "violations": []
+    },
+    {
+      "screen": "ask-family",
+      "violations": []
+    },
+    {
+      "screen": "protection",
+      "violations": []
+    },
+    {
+      "screen": "edit-rules",
+      "violations": []
+    },
+    {
+      "screen": "freeze-confirm",
+      "violations": []
+    },
+    {
+      "screen": "freeze-success",
+      "violations": []
+    },
+    {
+      "screen": "pay-stopped",
+      "violations": []
+    },
+    {
+      "screen": "family-activity",
+      "violations": []
+    },
+    {
+      "screen": "activity-held",
+      "violations": []
+    },
+    {
+      "screen": "activity-stopped",
+      "violations": []
+    },
+    {
+      "screen": "elder-activity",
+      "violations": []
+    },
+    {
+      "screen": "elder-bigger-text",
+      "violations": []
+    },
+    {
+      "screen": "mama",
+      "violations": []
+    },
+    {
+      "screen": "sign-in-code-confirm",
+      "violations": []
+    },
+    {
+      "screen": "sign-in-code",
+      "violations": []
+    },
+    {
+      "screen": "replace-device",
+      "violations": []
+    },
+    {
+      "screen": "unpair-device",
+      "violations": []
+    },
+    {
+      "screen": "sign-in",
+      "violations": []
+    },
+    {
+      "screen": "offline",
+      "violations": []
+    },
+    {
+      "screen": "funding-error",
+      "violations": []
+    },
+    {
+      "screen": "loading",
+      "violations": []
+    }
+  ]
+}

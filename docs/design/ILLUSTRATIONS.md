@@ -11,4 +11,4 @@ Original illustrations generated for this project, using the first family scene 
 
 Illustrations use responsive contained dimensions, decorative empty alt text alongside explanatory headings, and WebP exports with transparency. Payment amounts, keypad, review checks, approval controls and stopped-payment screens remain focused on their functional state.
 
-The generated wordmark is installed in the header. The matching app mark supplies 16/32/48px ICO, 32px PNG favicon, 180px Apple touch icon and 192/512px maskable install icons. All files are served locally and included in service-worker shell cache v4. The original family scene and logo source PNGs are retained in the brand and illustration folders; no third-party reference artwork is reused.
+The generated wordmark is installed in the header. The matching app mark supplies 16/32/48px ICO, 32px PNG favicon, 180px Apple touch icon and 192/512px maskable install icons. All files are served locally and included in service-worker shell cache v6. Unused large source PNGs were removed and the runtime illustrations are compressed WebP; no third-party reference artwork is reused.

@@ -15,3 +15,5 @@ All six supplied concepts were inspected at their original size. Their artwork, 
 **original-ee7514749cfefc5476cb788367895ad2.webp.** Borrow scalloped people/place avatars, a clear selected state and a dark rounded navigation tray. Use initials only, retain visible text on every navigation item, and replace social trading content with approved places and the parent’s device status.
 
 Icon update: the user subsequently requested Hugeicons free icons. The UI now uses their locally bundled rounded SVG definitions (MIT), superseding the original Lucide-style/ISC instruction. Reference artwork remains unused.
+
+The reference images are not included in the repo.

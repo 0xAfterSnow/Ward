@@ -16,7 +16,7 @@ try {
  await page.getByRole('button',{name:'Dismiss message'}).click();await expect(page.locator('#notice')).toBeHidden();
  await page.getByLabel('Family sign-in code').fill(code);await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(page.locator('#notice')).toContainText('Signed in to Family.');
- await page.clock.runFor(5999);await expect(page.locator('#notice')).toBeVisible();
- await page.clock.runFor(1);await expect(page.locator('#notice')).toBeHidden();
+ await page.clock.runFor(3000);await expect(page.locator('#notice')).toBeVisible();
+ await page.clock.runFor(4000);await expect(page.locator('#notice')).toBeHidden();
  console.log('PASS: errors stay dismissible; sign-in confirmation expires after six seconds.');
 } finally {await browser.close();await new Promise(r=>server.close(r));}

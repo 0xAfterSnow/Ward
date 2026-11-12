@@ -4,4 +4,4 @@
 node_modules/
 target/
 .ward/
-/docs/screenshots
+docs/train/

@@ -28,3 +28,19 @@ body{height:100dvh;display:flex;flex-direction:column;overflow:hidden}.topbar{fl
 .notice { display:flex; align-items:center; gap:12px; }
 .notice>span { flex:1; min-width:0; overflow-wrap:anywhere; }
 .notice-dismiss { flex-shrink:0; padding:8px 12px; background:transparent; color:var(--pine); font-size:13px; }
+
+.demo-header-chip { margin:0 20px 8px; padding:4px 12px; border-radius:999px; background:var(--mist-2); color:var(--pine); font-size:13px; line-height:18px; width:fit-content; }
+.elder-home { gap:12px; }
+.elder-home h1 { font-size:26px; line-height:32px; }
+.elder-home .balance { padding:16px 20px; }
+.elder-home .balance-number { margin:0 0 8px; }
+.elder-home .daily-amount { padding-top:8px; }
+.elder-home .places h2 { margin-bottom:8px; }
+.elder-home .payee { gap:4px; }
+.elder-home .avatar { width:48px; height:48px; }
+.elder-home .support-tile { padding:12px; gap:4px; font-size:16px; line-height:22px; }
+.elder-mode #shield { margin-bottom:12px; }
+.source-chips { flex-wrap:wrap; }
+.source-chips button { flex:1 1 96px; }
+.elder-mode.bigger-text .elder-home h1 { font-size:34px; line-height:40px; }
+main.shell { scrollbar-width:thin; scrollbar-color:var(--pine-600) transparent; }

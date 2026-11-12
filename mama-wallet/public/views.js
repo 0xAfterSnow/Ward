@@ -109,12 +109,13 @@ function elderView(data) {
     return body;
   }
   const hour = new Date().getHours();
+  body.classList.add("elder-home");
   body.append(el("h1", `Good ${hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening"}, ${data.name}`));
   const balance = el("section", undefined, `balance elder-balance${data.frozen ? " paused" : ""}`);
   balance.append(el("h2", "You have", "balance-label"), testnet ? el("p", dollars(data.balance), "balance-number") : balanceValue(data.balance));
   const daily = el("dl", undefined, "daily-amount");
   daily.append(el("dt", "Left to spend today"), el("dd", dollars(data.leftToday)));
-  balance.append(daily, el("p", testnet ? "Test money only" : "Demo, no real money moves", "hero-disclosure"));
+  balance.append(daily);
   if (data.frozen) balance.append(el("p", "Your family paused payments", "caution"));
   body.append(balance);
   const pay = button("Pay", openPlaces, "primary pay-primary"); pay.append(icon("arrow"));
@@ -234,6 +235,13 @@ function inboxPanel(data) {
   return inbox;
 }
 
+function openFreeze(data) {
+    stage(data.frozen ? "Resume payments?" : "Pause Mama’s payments?", [el("p", data.frozen ? "Mama can pay again within your spending rules." : "All payments pause until you turn them back on. Mama will see that you paused them.")], data.frozen ? "Unfreeze wallet" : "Freeze wallet", async () => {
+      wallet = testnet ? (await onChain("freeze", { frozen: !data.frozen })).wallet : await api("freeze", { frozen: !data.frozen });
+      finish(wallet.frozen ? "Payments paused" : "Payments are back on");
+    });
+}
+
 function rulesPanel(data) {
   const rules = panel("Protection rules", "rules");
   const list = el("dl", undefined, "limits");
@@ -244,12 +252,7 @@ function rulesPanel(data) {
   for (const place of data.rules.places) { const item = el("li"); item.append(avatar(place.label), el("span", place.label)); places.append(item); }
   rules.append(list, el("h3", "Approved places"), places,
     button("Edit protection rules", () => openRules(data.rules)));
-  rules.append(button(data.frozen ? "Unfreeze wallet" : "Freeze wallet", () => {
-    stage(data.frozen ? "Resume payments?" : "Pause Mama’s payments?", [el("p", data.frozen ? "Mama can pay again within your spending rules." : "All payments pause until you turn them back on. Mama will see that you paused them.")], data.frozen ? "Unfreeze wallet" : "Freeze wallet", async () => {
-      wallet = testnet ? (await onChain("freeze", { frozen: !data.frozen })).wallet : await api("freeze", { frozen: !data.frozen });
-      finish(wallet.frozen ? "Payments paused" : "Payments are back on");
-    });
-  }, "freeze-button", "freeze"));
+  rules.append(button(data.frozen ? "Unfreeze wallet" : "Freeze wallet", () => openFreeze(data), "freeze-button", "freeze"));
   return rules;
 }
 
@@ -314,8 +317,8 @@ function familyView(data) {
       el("p", testnet ? "Test money only" : "Demo, no real money moves", "muted demo-note"));
     const funding = el("div", undefined, "action-bar");
     const add = () => testnet ? openTestnetDeposit() : openFunding(data);
-    funding.append(button("Add money", add, "bar-action"));
-    const plus = button("Add money", add, "bar-plus"); plus.replaceChildren(icon("plus")); plus.setAttribute("aria-label", "Add money with amount"); funding.append(plus);
+    funding.append(button(data.frozen ? "Unfreeze wallet" : "Freeze wallet", () => openFreeze(data), "bar-action"));
+    const plus = button("Add money", add, "bar-plus"); plus.replaceChildren(icon("plus")); plus.setAttribute("aria-label", "Add money"); funding.append(plus);
     funding.append(testnet ? button("Withdraw", () => openTestnetFunding("withdraw"), "bar-action") : button("Activity", () => navigate("activity", render), "bar-action"));
     hero.append(funding); body.append(hero);
     if (data.pending.length + data.requests.length + data.blockedAlerts.length) body.append(inboxPanel(data));
@@ -386,6 +389,8 @@ function render() {
   const elder = wallet?.role === "elder" || Boolean(invitation) || (!wallet && (location.pathname === "/elder" || disconnected));
   document.body.classList.toggle("elder-mode", elder);
   bigger.hidden = wallet?.role !== "elder";
+  document.querySelector("#demo-chip").hidden = !elder;
+  document.querySelector("#demo-chip").textContent = testnet ? "Test money only" : "Demo, no real money moves";
   roleLabel.hidden = elder;
   roleLabel.textContent = testnet ? "Test wallet" : wallet ? "Family view" : "Demo wallet";
   if (testnet) document.querySelector("footer").textContent = "Test money only";
@@ -542,7 +547,7 @@ function openPayment(payee) {
         wallet = refreshed; render();
         const titles = { ALLOW: "Sent", HOLD: "Waiting for your family", BLOCK: "Stopped to keep you safe" };
         const mark = el("div", undefined, "result-mark"); mark.append(result.decision === "HOLD" ? avatar(wallet.childName) : icon(result.decision === "ALLOW" ? "check" : "shield"));
-        stage(titles[result.decision], [mark, el("p", result.decision === "ALLOW" ? `${dollars(payment.dollars)} to ${payee.label}` : outcomeText[result.decision])]);
+        stage(titles[result.decision], [mark, el("p", result.decision === "ALLOW" ? `${dollars(payment.dollars)} to ${payee.label}` : result.decision === "BLOCK" ? "Your family has been told." : outcomeText[result.decision])]);
         dialog.className = `result-screen result-${result.decision.toLowerCase()}`;
       });
     });
@@ -610,13 +615,13 @@ function openFunding(data) {
   const source = el("select");
   const sourceDetails = el("details"); sourceDetails.append(el("summary", "Details"));
   for (const [index, item] of data.sources.entries()) {
-    const option = el("option", `Funding source ${index + 1}`); option.value = item.id; source.append(option);
+    const option = el("option", item.label); option.value = item.id; source.append(option);
     sourceDetails.append(el("p", `Source ${index + 1}: ${item.label}`));
   }
   const amount = amountInput(); amount.className = "amount-display"; amount.placeholder = "0.00";
   const chips = el("div", undefined, "source-chips");
   for (const [index, item] of data.sources.entries()) {
-    const chip = button(`Source ${index + 1}`, () => { source.value = item.id; for (const node of chips.children) node.setAttribute("aria-pressed", String(node === chip)); }, "amount-chip");
+    const chip = button(item.label, () => { source.value = item.id; for (const node of chips.children) node.setAttribute("aria-pressed", String(node === chip)); }, "amount-chip");
     chip.setAttribute("aria-pressed", String(index === 0)); chips.append(chip);
   }
   const sourceField = field("Funding source", source); sourceField.hidden = true;

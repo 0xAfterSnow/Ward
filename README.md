@@ -57,6 +57,7 @@ Mama can pay any valid recipient, ask for help, or ask the family to save a plac
 
 - goChameleon is the team's pre-existing payment gateway. Ward is developed in a separate repository and the demo has no goChameleon dependency.
 - Libraries and AI-assisted code: Node.js built-ins including `node:sqlite`, NEAR Rust SDK for the vault, NEAR Workspaces and NEAR API JS for the optional Sandbox test. Codex generated the policy, vault, ledger, funding and screening adapters, Mama Wallet, demo and tests.
+- The illustrations and logo were AI-generated for this project; see [illustration and brand assets](docs/design/ILLUSTRATIONS.md).
 
 ## Tests
 
@@ -288,6 +289,12 @@ The default loopback server supports separate browser profiles on one computer. 
 
 The earlier single-wallet PWA database remains separate. Legacy ledger rows opened through the SQLite migration stay in a local namespace that browser onboarding cannot claim.
 
+Mock dollar amounts are simulated ledger units with no real money movement; in testnet mode amounts represent test USDC (or test NEAR in native mode), not redeemable dollars, even where the Elder display uses a dollar sign.
+
+### Populated mock demo for recording
+
+Run `npm run demo:seed`, then `WARD_WALLET_DB=.ward/demo-seed.sqlite npm run dev`. Open `/family`, choose **Sign in to an existing family**, and use the code printed by the seed command. Under **Mama**, create a pairing link for a separate browser profile. Each seed run adds a new family to this dedicated local database without deleting existing families: $125 funding, three completed payments, one stopped bank-impersonation attempt and one held payment. The starting available balance is $115.50. This command is mock-only, accepts no testnet arguments, and never contacts a chain or signs transactions. Keep the printed sign-in code local.
+
 ### Playwright screenshots
 
 Run `npm run test:ui` for an isolated, in-memory mock wallet with separate Family and Elder browser contexts. The script uses local Chrome (`CHROME_PATH` can override `/opt/google/chrome/chrome`), captures 360×800, 390×844, 430×932 and 1280×800, checks horizontal overflow and runs axe. Development dependencies only: Playwright and `@axe-core/playwright`.
@@ -302,7 +309,7 @@ Run `npm run test:ui` for an isolated, in-memory mock wallet with separate Famil
 
 [Capture and accessibility report](docs/screenshots/qa/report.json) · [Reference study](docs/design/REFERENCES.md).
 
-The redesigned setup starts with **Create family wallet → names → rules**. Choose **Custom** to add approved places. Family tabs are **Home, Activity, Protection, Mama**. Use **Add money** on Home; source networks are listed under **Details**. Pairing and device controls live under **Mama**. Elder Pay separates amount entry, the safety question, review and result. Freeze requires confirmation under **Protection**. Existing API payloads and backend behavior are retained.
+The redesigned setup starts with **Create family wallet → names → rules**. Choose **Custom** to add approved places. Family tabs are **Home, Activity, Protection, Mama**. Use the **+** (Add money) on Home; source chips show the catalog asset and network names. Pairing and device controls live under **Mama**. Elder Pay separates amount entry, the safety question, review and result. Freeze requires confirmation under **Protection**. Existing API payloads and backend behavior are retained.
 
 Manrope is self-hosted under `mama-wallet/public/fonts/` with its OFL licence. UI icons are the requested Hugeicons free rounded set, vendored from `@hugeicons/core-free-icons` 4.4.0 with its MIT licence in `mama-wallet/public/icons-LICENSE.txt`.
 

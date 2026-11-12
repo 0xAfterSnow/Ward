@@ -20,7 +20,6 @@ const assets = new Map(Object.entries({
   "/favicon-32.png": ["favicon-32.png", "image/png"],
   "/apple-touch-icon.png": ["apple-touch-icon.png", "image/png"],
 
-  "/illustrations/family-ready.png": ["illustrations/family-ready.png", "image/png"],
   "/": ["index.html", "text/html; charset=utf-8"],
   "/elder": ["index.html", "text/html; charset=utf-8"],
   "/family": ["index.html", "text/html; charset=utf-8"],
