@@ -290,12 +290,21 @@ The earlier single-wallet PWA database remains separate. Legacy ledger rows open
 
 ### Playwright screenshots
 
-| View | Before | After |
+Run `npm run test:ui` for an isolated, in-memory mock wallet with separate Family and Elder browser contexts. The script uses local Chrome (`CHROME_PATH` can override `/opt/google/chrome/chrome`), captures 360×800, 390×844, 430×932 and 1280×800, checks horizontal overflow and runs axe. Development dependencies only: Playwright and `@axe-core/playwright`.
+
+| Screen | 390px | Desktop |
 | --- | --- | --- |
-| Elder · 390px | [Baseline](docs/screenshots/before-elder-390.png) | [Elder wallet](docs/screenshots/elder-390.png) |
-| Family · 390px | [Baseline](docs/screenshots/before-family-390.png) | [Family inbox](docs/screenshots/family-390.png) |
-| Elder · 1280px | [Baseline](docs/screenshots/before-elder-1280.png) | [Elder wallet](docs/screenshots/elder-1280.png) |
-| Family · 1280px | [Baseline](docs/screenshots/before-family-1280.png) | [Family inbox](docs/screenshots/family-1280.png) |
+| Welcome | [Welcome](docs/screenshots/welcome-390.png) | [Desktop](docs/screenshots/welcome-1280.png) |
+| Elder Home | [Wallet](docs/screenshots/elder-home-390.png) | [Desktop](docs/screenshots/elder-home-1280.png) |
+| Pay | [Keypad](docs/screenshots/pay-amount-390.png) | [Desktop](docs/screenshots/pay-amount-1280.png) |
+| Family Home | [Wallet](docs/screenshots/family-home-390.png) | [Desktop](docs/screenshots/family-home-1280.png) |
+| Protection | [Rules](docs/screenshots/protection-390.png) | [Desktop](docs/screenshots/protection-1280.png) |
+
+[Capture and accessibility report](docs/screenshots/qa/report.json) · [Reference study](docs/design/REFERENCES.md).
+
+The redesigned setup starts with **Create family wallet → names → rules**. Choose **Custom** to add approved places. Family tabs are **Home, Activity, Protection, Mama**. Use **Add money** on Home; source networks are listed under **Details**. Pairing and device controls live under **Mama**. Elder Pay separates amount entry, the safety question, review and result. Freeze requires confirmation under **Protection**. Existing API payloads and backend behavior are retained.
+
+Manrope is self-hosted under `mama-wallet/public/fonts/` with its OFL licence. UI icons are the requested Hugeicons free rounded set, vendored from `@hugeicons/core-free-icons` 4.4.0 with its MIT licence in `mama-wallet/public/icons-LICENSE.txt`.
 
 ## Optional NEAR AI Cloud screening
 

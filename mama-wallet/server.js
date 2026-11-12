@@ -11,11 +11,28 @@ import { formatUsdc, usdcToAtomic } from "../firewall/testnet-usdc.js";
 import { createNearAiScreener } from "../firewall/screening.js";
 
 const assets = new Map(Object.entries({
+  "/illustrations/family-connect.webp": ["illustrations/family-connect.webp", "image/webp"],
+  "/illustrations/family-help.webp": ["illustrations/family-help.webp", "image/webp"],
+  "/illustrations/wallet-care.webp": ["illustrations/wallet-care.webp", "image/webp"],
+  "/illustrations/family-ready.webp": ["illustrations/family-ready.webp", "image/webp"],
+  "/brand/mama-wallet-logo.webp": ["brand/mama-wallet-logo.webp", "image/webp"],
+  "/favicon.ico": ["favicon.ico", "image/x-icon"],
+  "/favicon-32.png": ["favicon-32.png", "image/png"],
+  "/apple-touch-icon.png": ["apple-touch-icon.png", "image/png"],
+
+  "/illustrations/family-ready.png": ["illustrations/family-ready.png", "image/png"],
   "/": ["index.html", "text/html; charset=utf-8"],
   "/elder": ["index.html", "text/html; charset=utf-8"],
   "/family": ["index.html", "text/html; charset=utf-8"],
   "/testnet.js": ["testnet.js", "text/javascript; charset=utf-8"],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+  "/views.js": ["views.js", "text/javascript; charset=utf-8"],
+  "/components.js": ["components.js", "text/javascript; charset=utf-8"],
+  "/router.js": ["router.js", "text/javascript; charset=utf-8"],
+  "/api.js": ["api.js", "text/javascript; charset=utf-8"],
+  "/fonts/manrope-variable.woff2": ["fonts/manrope-variable.woff2", "font/woff2"],
+  "/fonts/OFL.txt": ["fonts/OFL.txt", "text/plain"],
+  "/icons-LICENSE.txt": ["icons-LICENSE.txt", "text/plain"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
   "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json"],
   "/sw.js": ["sw.js", "text/javascript; charset=utf-8"],

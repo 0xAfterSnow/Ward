@@ -23,6 +23,11 @@
     "demo:injection": "node demo/run.js injection",
     "deploy:vault:testnet": "node firewall/vault/sandbox/testnet.js deploy",
     "demo:vault": "node firewall/vault/sandbox/testnet.js demo",
-    "demo:bank-scam": "node demo/run.js bank-scam"
+    "demo:bank-scam": "node demo/run.js bank-scam",
+    "test:ui": "node scripts/visual-qa.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.65.0"
   }
 }
