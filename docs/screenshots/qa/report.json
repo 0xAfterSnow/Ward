@@ -22,6 +22,7 @@
     "pay-sent",
     "pay-waiting",
     "family-needs-you",
+    "approval-detail",
     "new-payee",
     "save-place",
     "request-success",
@@ -149,6 +150,10 @@
     },
     {
       "screen": "family-needs-you",
+      "violations": []
+    },
+    {
+      "screen": "approval-detail",
       "violations": []
     },
     {

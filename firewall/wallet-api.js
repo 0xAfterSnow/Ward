@@ -69,8 +69,9 @@ export function createWalletApi({ wallets, origin, toAtomic, format, quoteFundin
     const deviceReady = Boolean(live?.requester && live.requester === device.requester
       && await chain.scoped(device.requester, device.scoped, family.address));
     const names = new Map(places.map(({ id, label }) => [id, label]));
-    const rowView = row => ({
-      id: row.id.split(":")[0],
+    const rowView = (row, includeReview = false) => ({
+      id: String(row.id).split(":")[0],
+      ...(role === "family" && includeReview === true ? { reviewMessage: wallets.reviewMessage(familyId, chain ? "chain" : "mock", String(row.id).split(":")[0]) ?? null } : {}),
       kind: row.kind,
       payee: names.get(row.payee) ?? (role === "family" ? row.payee : null),
       amount: row.amount === null ? null : format(row.amount),
@@ -104,7 +105,7 @@ export function createWalletApi({ wallets, origin, toAtomic, format, quoteFundin
         ...(live ? { fundingAccount: device.approver, deviceRequested: Boolean(device.requester), deviceAttached: Boolean(live.requester) } : {}),
         pending: live ? (live.pending ? [rowView({
           ...live.pending, kind: "payment", decision: "HOLD", ruleId: ward.payment(live.pending.id)?.ruleId ?? "requested_review",
-        })] : []) : ward.pending().map(rowView),
+        }, true)] : []) : ward.pending().map(row => rowView(row, true)),
         blockedAlerts: ward.blockedAlerts().map(row => ({ ...rowView(row), alertId: String(row.sequence) })),
         requests: requests.filter(row => row.status === "pending").map(({ family_id, ...row }) => row),
         audit: audit.map(rowView).reverse(),
@@ -168,6 +169,7 @@ export function createWalletApi({ wallets, origin, toAtomic, format, quoteFundin
     let keyHex = signer;
     let args;
     let localRules;
+    let reviewMessage;
     if (role === "elder") {
       signer = device.requester;
       if (!signer || live.requester !== signer) throw new ApiError(409, "Ask your family to enable this device first");
@@ -178,6 +180,7 @@ export function createWalletApi({ wallets, origin, toAtomic, format, quoteFundin
         keyHex = device.scoped;
         if (!(await chain.scoped(signer, keyHex, address))) throw new ApiError(409, "Finish connecting this phone first");
         const { payee, amount, memo, asked } = paymentBody(body);
+        reviewMessage = { asked, memo };
         if (!isAccountId(payee) || amountOf(amount) === null) throw new ApiError(400, "Enter a valid recipient and amount");
         if (chain.asset === "usdc" && checkChain({ payee, amount }, live).decision !== "BLOCK"
           && !(await chain.isRegistered(payee))) {
@@ -228,6 +231,7 @@ export function createWalletApi({ wallets, origin, toAtomic, format, quoteFundin
     authorize();
     const transaction = await chain.prepare({ op, signer, keyHex, address, args });
     authorize();
+    if (reviewMessage) wallets.saveReviewMessage(familyId, "intent", id, reviewMessage);
     return wallets.saveIntent(familyId, id, { ...transaction, op, role, signer, args, localRules });
   }
 
@@ -248,6 +252,10 @@ export function createWalletApi({ wallets, origin, toAtomic, format, quoteFundin
       result = failed ? { ...result, decision: "BLOCK", ruleId: "settlement_failed", reason: explanations.settlement_failed }
         : { ...result, ...decision };
       ward.recordChainDecision({ ...result, event, kind });
+      if (intent.op === "pay" && event.requestId != null) {
+        const saved = wallets.reviewMessage(familyId, "intent", body.id);
+        if (saved) wallets.saveReviewMessage(familyId, "chain", event.requestId, { asked: saved.asked, memo: saved.message });
+      }
     }
     if (["pay", "review"].includes(intent.op) && !result.decision) throw new ApiError(502, "Payment receipt missing");
     if (intent.op === "fund") ward.recordChainFunding({ hash: intent.hash, amount: intent.args.amount, sender: family.child_name });
@@ -357,6 +365,7 @@ export function createWalletApi({ wallets, origin, toAtomic, format, quoteFundin
             if (error.message === "Payment ID already used") throw new ApiError(409, error.message);
             throw error;
           }
+          wallets.saveReviewMessage(familyId, "mock", payment.id, payment);
           return send(res, 200, { result, wallet: await view() });
         }
         if (pathname === "/api/family-requests") {

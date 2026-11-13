@@ -161,7 +161,7 @@ async function copy(value, message) {
   }
 }
 
-function inboxPanel(data) {
+function inboxPanel(data, detail = false) {
   const total = data.pending.length + data.requests.length + data.blockedAlerts.length;
   const inbox = panel("Needs you", total ? "inbox has-requests" : "inbox");
   if (total) {
@@ -185,13 +185,18 @@ function inboxPanel(data) {
   const reviewId = new URLSearchParams(location.hash.slice(1)).get("review");
   for (const row of data.pending) {
     const item = el("article", undefined, "request");
-    if (row.id === reviewId) {
-      item.classList.add("selected");
-      item.tabIndex = -1;
-    }
     const heading = el("h3", undefined, "request-heading");
     heading.append(el("span", row.payee ?? "Payment"), el("span", dollars(row.amount), "request-amount"));
     item.append(heading, el("p", row.reason));
+    if (row.reviewMessage) {
+      const context = el("div", undefined, "review-message");
+      const answer = { yes: "Yes", no: "No", unsure: "Not sure" }[row.reviewMessage.asked];
+      if (answer) context.append(el("p", `Did someone ask Mama to send this? ${answer}`));
+      if (row.reviewMessage.message) context.append(el("h4", "What they said"), el("p", row.reviewMessage.message, "message"));
+      item.append(context);
+    } else if (row.ruleId === "requested_review" || row.ruleId === "someone_asked") {
+      item.append(el("p", "The original message wasn’t saved for this payment.", "muted"));
+    }
     if (row.signals.length) item.append(el("p", `Message signals: ${row.signals.join(", ")}`, "muted"));
     const approval = `${location.origin}/family#review=${encodeURIComponent(row.id)}`;
     const actions = el("div", undefined, "actions");
@@ -199,16 +204,27 @@ function inboxPanel(data) {
       actions.append(button(label, () => update(async () => {
         const result = testnet ? await onChain("review", { requestId: row.id, approve }) : await api("review", { id: row.id, approve });
         wallet = result.wallet;
+        if (new URLSearchParams(location.hash.slice(1)).get("review") === String(row.id)) history.replaceState(null, "", "/family#tab=home");
+        if (detail) dialog.close();
         notify(`${result.result.reason}.`, true);
       }), approve ? "primary" : "outline", `${row.id}-${label}`));
     }
     const links = el("div", undefined, "review-links");
-    links.append(link("Open approval link", approval),
+    const open = link("Open approval link", approval);
+    open.dataset.focus = `${row.id}-open`;
+    open.addEventListener("click", event => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      history.pushState(null, "", approval);
+      focusReview();
+    });
+    links.append(open,
       button("Copy approval link", () => copy(approval, "Approval link copied."), "text-button", `${row.id}-copy`));
-    item.append(actions, links);
+    item.append(actions);
+    if (!detail) item.append(links);
     inbox.append(item);
   }
-  if (reviewId && !data.pending.some(row => row.id === reviewId)) {
+  if (reviewId && !data.pending.some(row => String(row.id) === reviewId)) {
     inbox.append(el("p", "This payment is no longer waiting for approval."));
   }
   for (const row of data.requests) {
@@ -461,6 +477,7 @@ function amountInput(value) {
 
 function stage(title, fields, actionLabel, action) {
   dialog.className = "";
+  delete dialog.dataset.approval;
   const heading = el("h2", title);
   heading.id = "dialog-title";
   heading.tabIndex = -1;
@@ -861,8 +878,10 @@ function signInView() {
     void update(async () => {
       wallet = await api("family-sign-in", { code: code.value });
       await checkFamilyKey();
-      history.replaceState(null, "", "/family");
+      const review = new URLSearchParams(location.hash.slice(1)).get("review");
+      history.replaceState(null, "", review ? `/family#review=${encodeURIComponent(review)}` : "/family");
       notify("Signed in to Family.", true);
+      if (review) { render(); focusReview(); }
     });
   });
   view.append(login, button("Set up a family wallet", () => { showSignIn = false; render(); }, "text-button"));
@@ -927,9 +946,17 @@ bigger.addEventListener("click", () => {
 });
 
 function focusReview() {
-  screen.querySelector(".request.selected")?.focus();
+  const id = new URLSearchParams(location.hash.slice(1)).get("review");
+  if (!id || wallet?.role !== "family") return;
+  const row = wallet.pending.find(item => String(item.id) === id);
+  stage("Review payment", row ? [inboxPanel({ ...wallet, pending: [row], requests: [], blockedAlerts: [] }, true)]
+    : [el("p", "This payment is no longer waiting for approval.")]);
+  dialog.dataset.approval = "true";
 }
-window.addEventListener("popstate", () => { if (wallet && !dialog.open) render(); });
+window.addEventListener("popstate", () => {
+  if (dialog.dataset.approval) dialog.close();
+  if (wallet && !dialog.open) { render(); focusReview(); }
+});
 window.addEventListener("hashchange", () => {
   if (wallet && !dialog.open) {
     render();

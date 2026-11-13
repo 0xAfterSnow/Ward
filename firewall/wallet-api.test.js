@@ -114,6 +114,11 @@ test("onboarding, pairing and wallet controls enforce roles and the starting rul
   assert.equal((await post("payments", pressured, elder)).body.result.ruleId, "someone_asked");
   assert.deepEqual((await get(family)).pending[0].signals, ["urgency", "secrecy"]);
   assert(!JSON.stringify((await get(family)).audit).includes(pressured.memo));
+  const privateReview = (await get(family)).pending.find(row => row.id === pressured.id);
+  assert.deepEqual(privateReview.reviewMessage, { asked: "unsure", message: pressured.memo });
+  assert(!JSON.stringify(await get(elder)).includes(pressured.memo));
+  await post("payments", { ...pressured, memo: "Changed on retry" }, elder);
+  assert.equal((await get(family)).pending.find(row => row.id === pressured.id).reviewMessage.message, pressured.memo);
 
   assert.equal((await post("freeze", { frozen: true }, elder)).status, 403);
   assert.equal((await post("freeze", { frozen: "true" })).status, 400);
@@ -329,6 +334,18 @@ test("testnet routes require a finalized chain receipt and surface blocked trans
   assert.equal((await post("chain-prepare", { ...pay, id: "failed-settlement" }, elder)).status, 200);
   const failure = await post("chain-finish", { id: "failed-settlement" }, elder);
   assert.equal(failure.body.result.ruleId, "settlement_failed");
+  const held = { ...pay, id: "held-note", asked: "unsure", memo: "They asked me to send this today." };
+  await post("chain-prepare", held, elder);
+  assert.deepEqual(Object.keys(prepared.args).sort(), ["amount", "force_review", "payee"]);
+  assert(!JSON.stringify(prepared).includes(held.memo));
+  state.pending = { id: "6", payee: held.payee, amount: dollarsToAtomic("1") };
+  chain.finalized = async () => [{event: "payment_decision", requestId: "6", payee: held.payee, amount: dollarsToAtomic("1"), result: {decision: "HOLD", ruleId: "requested_review", reason: "Review"}}];
+  const completed = await post("chain-finish", {id: held.id}, elder);
+  assert.equal(completed.status, 200);
+  assert(!JSON.stringify(completed.body).includes(held.memo));
+  const privateNote = (await request("wallet", {cookie: family})).body.pending[0].reviewMessage;
+  assert.deepEqual(privateNote, {asked: "unsure", message: held.memo});
+
 });
 
 test("USDC uses a separate session, six-decimal units and recipient registration", async t => {

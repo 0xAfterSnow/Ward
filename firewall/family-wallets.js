@@ -22,6 +22,12 @@ export function openFamilyWallets(filename, { clock, authClock = Date.now, cloud
       family_id TEXT NOT NULL REFERENCES families (family_id), id TEXT NOT NULL,
       data TEXT NOT NULL, PRIMARY KEY (family_id, id)
     );
+    CREATE TABLE IF NOT EXISTS wallet_review_messages (
+      family_id TEXT NOT NULL REFERENCES families (family_id),
+      scope TEXT NOT NULL, payment_id TEXT NOT NULL,
+      asked TEXT, message TEXT NOT NULL,
+      PRIMARY KEY (family_id, scope, payment_id)
+    );
     CREATE TABLE IF NOT EXISTS wallet_sessions (
       family_id TEXT NOT NULL REFERENCES families (family_id),
       digest TEXT PRIMARY KEY, role TEXT NOT NULL CHECK (role IN ('family', 'elder')),
@@ -37,6 +43,8 @@ export function openFamilyWallets(filename, { clock, authClock = Date.now, cloud
       digest TEXT NOT NULL UNIQUE, expires INTEGER NOT NULL
     );
   `);
+  const insertReviewMessage = db.prepare("INSERT OR IGNORE INTO wallet_review_messages VALUES (?, ?, ?, ?, ?)");
+  const selectReviewMessage = db.prepare("SELECT asked, message FROM wallet_review_messages WHERE family_id = ? AND scope = ? AND payment_id = ?");
   const family = db.prepare("SELECT * FROM families WHERE family_id = ?");
   const insertFamily = db.prepare("INSERT INTO families VALUES (?, ?, ?, ?)");
   const chain = db.prepare("SELECT approver, requester, scoped FROM wallet_chain WHERE family_id = ?");
@@ -83,6 +91,11 @@ export function openFamilyWallets(filename, { clock, authClock = Date.now, cloud
       });
     },
 
+    // Separate from audit and chain arguments; only the Family dashboard exposes this data.
+    saveReviewMessage(familyId, scope, paymentId, { asked, memo }) {
+      insertReviewMessage.run(familyId, scope, String(paymentId), asked ?? null, memo ?? "");
+    },
+    reviewMessage: (familyId, scope, paymentId) => selectReviewMessage.get(familyId, scope, String(paymentId)),
     family: id => family.get(id),
     chain: id => chain.get(id),
     hasChainOwner: account => Boolean(chainOwner.get(account)),
