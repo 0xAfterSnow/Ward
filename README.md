@@ -1,6 +1,7 @@
 # Ward + Mama Wallet
 
 **Send money home without handing it to scammers.**
+**Demo video:** [X post](https://x.com/0xAfterSnow/status/2121690698349203595)
 
 A caller pretends to be Mama’s bank and tells her to move her money to a “safe account.”
 Her family can send money home and set rules about how much she can spend and when to ask them first.
