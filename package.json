@@ -25,7 +25,8 @@
     "demo:vault": "node firewall/vault/sandbox/testnet.js demo",
     "demo:bank-scam": "node demo/run.js bank-scam",
     "test:ui": "node scripts/visual-qa.mjs",
-    "demo:seed": "node demo/seed.js"
+    "demo:seed": "node demo/seed.js",
+    "verify:testnet": "node scripts/verify-testnet.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

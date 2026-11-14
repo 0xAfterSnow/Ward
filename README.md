@@ -19,7 +19,7 @@ Built for NEAR HACKATHON: **Security · Real-World Money · Social Money**.
 
 | Component | Honest status |
 | --- | --- |
-| Mama Wallet — NEAR testnet USDC mode | **Verified end to end by the project owner:** sent testnet USDC to another recipient through the app. Uses on-chain token balances and signed transactions. |
+| Mama Wallet — NEAR testnet USDC mode | **Verified end to end by the project owner:** sent testnet USDC to another recipient through the app. Uses on-chain token balances and signed transactions. [Owner transaction and RPC evidence](docs/testnet-usdc-app.md#owner-transaction-proof). |
 | Policy engine | 39 JavaScript tests; runs offline after installation. |
 | Mama Wallet — offline demo mode | Local mock ledger and demo dollars for credential-free evaluation. The scripted bank-scam test exercises a pressure hold and family rejection. |
 | NEAR vault | Verified in the signed local Sandbox test, including token settlement; public testnet receipts below show 3 test NEAR settled. |
@@ -100,7 +100,20 @@ The current on-chain key list for `elder.aftersnow.testnet` contains one functio
 | Approve as family | `ALLOW` and `SETTLED` for request 2 | [`BHa6LtkiTDQH8VPhrUoR9pM9FgyXLVPhgNJzJzJg9aPW`](https://testnet.nearblocks.io/txns/BHa6LtkiTDQH8VPhrUoR9pM9FgyXLVPhgNJzJzJg9aPW) |
 | Request payment to an unapproved recipient | `BLOCK` under `payee_allowlist` | [`i5bEZrvefHUCFhJKYD3YqwGFBwy6XARpbu3XpxFFadv`](https://testnet.nearblocks.io/txns/i5bEZrvefHUCFhJKYD3YqwGFBwy6XARpbu3XpxFFadv) |
 
-Inspect receipts and access-key permissions without credentials or signing.
+Inspect receipts and access-key permissions without credentials or signing:
+
+```sh
+npm run --silent verify:testnet
+```
+
+Or inspect the current elder keys without this repository:
+
+```sh
+curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_access_key_list","finality":"final","account_id":"elder.aftersnow.testnet"}}'
+```
+
+A correct key result contains only `FunctionCall` permissions with `receiver_id` equal to `vault.aftersnow.testnet` and `method_names` exactly `["request_payment"]`, with no `FullAccess`; the script also checks all six transactions for finality, success and expected signer/receiver, and checks historical decisions only when vault receipt logs are available.
+
 [Reproduce: sponsor and deploy](docs/testnet-vault.md) · [Browser testnet USDC setup](docs/testnet-usdc-app.md)
 
 ## NEAR tools used
